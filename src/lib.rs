@@ -15,3 +15,8 @@ pub mod server;
 pub mod state;
 pub mod store;
 pub mod worker;
+
+/// A stored or configured name that matches no variant of the enum it should parse into.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown value {0:?}")]
+pub struct UnknownValue(pub String);

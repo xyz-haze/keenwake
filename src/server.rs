@@ -83,13 +83,6 @@ pub(crate) async fn send_untriaged_raw(app: &App, source: &str, body: &[u8], tex
     app.send(Target::Ping, msg).await;
 }
 
-fn mode_str(m: Mode) -> &'static str {
-    match m {
-        Mode::Observe => "observe",
-        Mode::Gate => "gate",
-    }
-}
-
 pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
     let Some(spec) = app.cfg.sources.get(source) else {
         app.metrics.inc("keenwake_unknown_source_total", &[]);
@@ -108,10 +101,10 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
         app.metrics.inc("keenwake_alerts_total", &[("source", source)]);
         let now = (app.clock)();
         let p = prepare(&app.store, &app.redactor, alert, now, app.cfg.decision.repeat_window_secs());
-        let mode = mode_str(app.cfg.decision.mode).to_string();
+        let mode = app.cfg.decision.mode;
         if !p.needs_model {
             let delivered = if app.cfg.decision.mode == Mode::Gate && p.already_pinged {
-                app.send(Target::Ping, message("resolved", &p.alert, None, "", "")).await
+                app.send(Target::Ping, message(Kind::Resolved, &p.alert, None, "", "")).await
             } else {
                 false
             };
@@ -119,7 +112,7 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
                 event_seq: p.event_seq,
                 decided_at: now,
                 mode,
-                kind: "resolved".into(),
+                kind: Kind::Resolved,
                 probability: None,
                 reason: String::new(),
                 delivered,
@@ -147,14 +140,14 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
                 false
             }
             Target::Nothing => false,
-            t => app.send(t, message(r.kind.as_str(), &p.alert, prob, &reason, &facts_line(&p.facts))).await,
+            t => app.send(t, message(r.kind, &p.alert, prob, &reason, &facts_line(&p.facts))).await,
         };
         let delivered = delivered && r.kind != Kind::Repeat;
         app.store.insert_decision(&DecisionRow {
             event_seq: p.event_seq,
             decided_at: now,
             mode,
-            kind: r.kind.as_str().into(),
+            kind: r.kind,
             probability: prob,
             reason,
             delivered: delivered && r.target != Target::Verdict,

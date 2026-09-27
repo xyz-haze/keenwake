@@ -1,8 +1,8 @@
-use keenwake::redact::Redactor;
+use keenwake::redact::{Pattern, Redactor};
 use proptest::prelude::*;
 
 fn all() -> Redactor {
-    Redactor::new(&["email".into(), "ip".into(), "token".into()])
+    Redactor::new(&[Pattern::Email, Pattern::Ip, Pattern::Token])
 }
 
 #[test]
@@ -24,7 +24,7 @@ fn keeps_ordinary_text() {
 
 #[test]
 fn only_enabled_patterns_apply() {
-    let r = Redactor::new(&["email".into()]);
+    let r = Redactor::new(&[Pattern::Email]);
     assert_eq!(r.clean("a@b.io 10.0.0.1"), "[redacted:email] 10.0.0.1");
 }
 

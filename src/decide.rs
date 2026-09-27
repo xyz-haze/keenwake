@@ -1,7 +1,11 @@
 //! Probability + thresholds + mode -> what happens. Pure: no I/O, no clock.
 
 use crate::config::{DecisionCfg, Mode, OnError};
+use crate::UnknownValue;
+use std::str::FromStr;
 
+/// What was decided for one event. `Resolved` is recorded for a resolved alert, which skips the
+/// model; `route` never returns it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Ping,
@@ -9,9 +13,11 @@ pub enum Kind {
     Digest,
     Untriaged,
     Repeat,
+    Resolved,
 }
 
 impl Kind {
+    /// The name stored in `decisions.kind` and sent in outgoing messages.
     pub fn as_str(self) -> &'static str {
         match self {
             Kind::Ping => "ping",
@@ -19,6 +25,7 @@ impl Kind {
             Kind::Digest => "digest",
             Kind::Untriaged => "untriaged",
             Kind::Repeat => "repeat",
+            Kind::Resolved => "resolved",
         }
     }
     pub fn urgency(self) -> u8 {
@@ -27,6 +34,22 @@ impl Kind {
             Kind::Escalate => 1,
             _ => 2,
         }
+    }
+}
+
+impl FromStr for Kind {
+    type Err = UnknownValue;
+
+    fn from_str(s: &str) -> Result<Kind, UnknownValue> {
+        Ok(match s {
+            "ping" => Kind::Ping,
+            "escalate" => Kind::Escalate,
+            "digest" => Kind::Digest,
+            "untriaged" => Kind::Untriaged,
+            "repeat" => Kind::Repeat,
+            "resolved" => Kind::Resolved,
+            _ => return Err(UnknownValue(s.to_string())),
+        })
     }
 }
 
@@ -72,7 +95,7 @@ pub fn route(d: &DecisionCfg, outcome: Result<f64, String>, already_pinged: bool
         Kind::Escalate => Target::Escalate,
         Kind::Digest => Target::DigestQueue,
         Kind::Untriaged if d.on_error == OnError::Ping => Target::Ping,
-        Kind::Untriaged | Kind::Repeat => Target::Nothing,
+        Kind::Untriaged | Kind::Repeat | Kind::Resolved => Target::Nothing,
     };
     Routing { kind, target }
 }

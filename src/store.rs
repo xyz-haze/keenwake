@@ -1,7 +1,11 @@
 //! SQLite store: events and decisions, ordered by seq, times in UTC unix seconds.
 
+use crate::config::Mode;
+use crate::decide::Kind;
 use crate::mapping::{Alert, Status};
+use rusqlite::types::Type;
 use rusqlite::{params, Connection, OptionalExtension, Row};
+use std::str::FromStr;
 use std::sync::{Mutex, PoisonError};
 
 pub struct Store {
@@ -19,8 +23,8 @@ pub struct Event {
 pub struct DecisionRow {
     pub event_seq: i64,
     pub decided_at: i64,
-    pub mode: String,
-    pub kind: String,
+    pub mode: Mode,
+    pub kind: Kind,
     pub probability: Option<f64>,
     pub reason: String,
     pub delivered: bool,
@@ -64,12 +68,21 @@ fn event(r: &Row) -> rusqlite::Result<Event> {
     })
 }
 
+/// Reads a column holding an enum's `as_str` name.
+fn named<T: FromStr>(r: &Row, i: usize) -> rusqlite::Result<T>
+where
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    let s: String = r.get(i)?;
+    s.parse().map_err(|e| rusqlite::Error::FromSqlConversionFailure(i, Type::Text, Box::new(e)))
+}
+
 fn decision(r: &Row, o: usize) -> rusqlite::Result<DecisionRow> {
     Ok(DecisionRow {
         event_seq: r.get(o)?,
         decided_at: r.get(o + 1)?,
-        mode: r.get(o + 2)?,
-        kind: r.get(o + 3)?,
+        mode: named(r, o + 2)?,
+        kind: named(r, o + 3)?,
         probability: r.get(o + 4)?,
         reason: r.get(o + 5)?,
         delivered: r.get::<_, i64>(o + 6)? != 0,
@@ -141,7 +154,7 @@ impl Store {
         let c = self.c();
         c.execute("INSERT OR REPLACE INTO decisions (event_seq, decided_at, mode, kind, probability, reason, delivered, backend_ms, input_tokens)
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![d.event_seq, d.decided_at, d.mode, d.kind, d.probability, d.reason, d.delivered as i64, d.backend_ms, d.input_tokens])
+            params![d.event_seq, d.decided_at, d.mode.as_str(), d.kind.as_str(), d.probability, d.reason, d.delivered as i64, d.backend_ms, d.input_tokens])
             .expect("insert decision");
         c.last_insert_rowid()
     }

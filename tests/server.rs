@@ -244,7 +244,7 @@ async fn replay_of_recorded_gate_history_changes_nothing() {
     ] {
         handle_body(&a, "grafana", &grafana(summary, fp, status)).await;
     }
-    let stored: Vec<String> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind).collect();
+    let stored: Vec<&str> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind.as_str()).collect();
     assert_eq!(stored, vec!["ping", "repeat", "resolved", "ping", "escalate", "digest"]);
     assert_eq!(keenwake::report::replay(&a, 0).await, vec![]);
 }

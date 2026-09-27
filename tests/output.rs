@@ -1,5 +1,6 @@
 mod common;
 use common::FakeHttp;
+use keenwake::decide::Kind;
 use keenwake::mapping::{Alert, Status};
 use keenwake::output::{message, Sender};
 use std::sync::{
@@ -21,7 +22,7 @@ fn alert() -> Alert {
 
 #[test]
 fn message_has_text_and_structured_part() {
-    let m = message("ping", &alert(), Some(0.82), "", "fired 3 times in 7 days");
+    let m = message(Kind::Ping, &alert(), Some(0.82), "", "fired 3 times in 7 days");
     assert!(m["text"].as_str().unwrap().contains("Disk full"));
     assert!(m["text"].as_str().unwrap().contains("0.82"));
     assert_eq!(m["keenwake"]["decision"], "ping");

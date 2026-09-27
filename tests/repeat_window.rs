@@ -64,6 +64,6 @@ async fn repeat_within_the_window_is_suppressed_and_after_it_pings_again() {
     NOW_WINDOW.store(T0 + 25 * HOUR, Ordering::SeqCst);
     handle_body(&a, "grafana", &grafana("p=0.90 disk full", "f1", "firing")).await;
     assert_eq!(sent_kinds(&out), vec!["ping", "ping"]);
-    let stored: Vec<String> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind).collect();
+    let stored: Vec<&str> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind.as_str()).collect();
     assert_eq!(stored, vec!["ping", "repeat", "ping"]);
 }

@@ -15,14 +15,14 @@ pub const JEV_USD_PER_MTOK: f64 = 0.042;
 pub struct ReportRow {
     pub summary: String,
     pub identity: String,
-    pub kind: String,
+    pub kind: &'static str,
     pub probability: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct Report {
     pub total: u64,
-    pub by_kind: BTreeMap<String, u64>,
+    pub by_kind: BTreeMap<&'static str, u64>,
     pub first_seen: u64,
     pub backend_errors: u64,
     pub median_backend_ms: Option<i64>,
@@ -59,8 +59,8 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
     let mut pinged: HashMap<String, Option<i64>> = HashMap::new();
     let mut out = Vec::new();
     for (e, d) in &rows {
-        *by_kind.entry(d.kind.clone()).or_insert(0) += 1;
-        if d.kind == "untriaged" {
+        *by_kind.entry(d.kind.as_str()).or_insert(0) += 1;
+        if d.kind == Kind::Untriaged {
             errors += 1;
         }
         if let Some(m) = d.backend_ms {
@@ -68,26 +68,26 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
         }
         tokens += d.input_tokens.unwrap_or(0);
         let before = store.events_for(&e.alert.identity, e.received_at - WINDOW_SECS, e.seq);
-        if d.kind != "resolved" && facts(&before, &e.alert, e.received_at).episodes_7d == 0 {
+        if d.kind != Kind::Resolved && facts(&before, &e.alert, e.received_at).episodes_7d == 0 {
             first_seen += 1;
         }
         let last = pinged.entry(e.alert.identity.clone()).or_insert(None);
-        match d.kind.as_str() {
-            "resolved" => *last = None,
-            "digest" | "escalate" => avoidable += 1,
-            "ping" | "untriaged" => {
+        match d.kind {
+            Kind::Resolved => *last = None,
+            Kind::Digest | Kind::Escalate => avoidable += 1,
+            Kind::Ping | Kind::Untriaged => {
                 if within(*last, e.received_at, repeat_window) {
                     avoidable += 1;
                 } else {
                     *last = Some(e.received_at);
                 }
             }
-            _ => {}
+            Kind::Repeat => {}
         }
         out.push(ReportRow {
             summary: e.alert.summary.clone(),
             identity: e.alert.identity.clone(),
-            kind: d.kind.clone(),
+            kind: d.kind.as_str(),
             probability: d.probability,
         });
     }
@@ -137,7 +137,7 @@ pub async fn replay(app: &App, since: i64) -> Vec<(i64, String, String, String)>
     let mut pinged: HashMap<String, Option<i64>> = HashMap::new();
     for (e, old) in app.store.decisions_since(since) {
         let last = pinged.entry(e.alert.identity.clone()).or_insert(None);
-        if old.kind == "resolved" {
+        if old.kind == Kind::Resolved {
             *last = None;
             continue;
         }
@@ -157,9 +157,13 @@ pub async fn replay(app: &App, since: i64) -> Vec<(i64, String, String, String)>
         if matches!(new_kind, Kind::Ping | Kind::Untriaged) {
             *last = Some(e.received_at);
         }
-        let new = new_kind.as_str().to_string();
-        if new != old.kind {
-            changed.push((e.seq, e.alert.summary.clone(), old.kind.clone(), new));
+        if new_kind != old.kind {
+            changed.push((
+                e.seq,
+                e.alert.summary.clone(),
+                old.kind.as_str().to_string(),
+                new_kind.as_str().to_string(),
+            ));
         }
     }
     changed

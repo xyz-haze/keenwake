@@ -1,5 +1,6 @@
 //! Outgoing webhooks: generic JSON with a `text` field, 3 attempts, then undelivered.jsonl.
 
+use crate::decide::Kind;
 use crate::mapping::Alert;
 use serde_json::{json, Value};
 use std::io::Write;
@@ -7,8 +8,9 @@ use std::time::Duration;
 
 pub const ATTEMPTS: u32 = 3;
 
-pub fn message(kind: &str, a: &Alert, probability: Option<f64>, reason: &str, facts_line: &str) -> Value {
+pub fn message(kind: Kind, a: &Alert, probability: Option<f64>, reason: &str, facts_line: &str) -> Value {
     let p = probability.map(|p| format!("{p:.2}")).unwrap_or_else(|| "n/a".into());
+    let kind = kind.as_str();
     let mut text = format!("[{kind}] {} ({}, {}, p={p})", a.summary, a.env, a.severity);
     if !reason.is_empty() {
         text.push_str(&format!(" - {reason}"));

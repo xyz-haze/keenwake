@@ -1,9 +1,12 @@
 //! Loads triage.toml: backend, thresholds, outputs, and the source mappings.
 
 use crate::mapping::SourceSpec;
+use crate::redact::Pattern;
+use crate::UnknownValue;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -11,6 +14,28 @@ pub enum Mode {
     #[default]
     Observe,
     Gate,
+}
+
+impl Mode {
+    /// The name stored in `decisions.mode`, the same as in the config file.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Mode::Observe => "observe",
+            Mode::Gate => "gate",
+        }
+    }
+}
+
+impl FromStr for Mode {
+    type Err = UnknownValue;
+
+    fn from_str(s: &str) -> Result<Mode, UnknownValue> {
+        match s {
+            "observe" => Ok(Mode::Observe),
+            "gate" => Ok(Mode::Gate),
+            _ => Err(UnknownValue(s.to_string())),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -114,10 +139,10 @@ pub struct OutputsCfg {
 #[serde(deny_unknown_fields)]
 pub struct RedactCfg {
     #[serde(default = "d_patterns")]
-    pub patterns: Vec<String>,
+    pub patterns: Vec<Pattern>,
 }
-fn d_patterns() -> Vec<String> {
-    vec!["email".into(), "ip".into(), "token".into()]
+fn d_patterns() -> Vec<Pattern> {
+    vec![Pattern::Email, Pattern::Ip, Pattern::Token]
 }
 impl Default for RedactCfg {
     fn default() -> Self {
@@ -308,11 +333,6 @@ impl Config {
         }
         if d.mode == Mode::Gate && self.outputs.digest.is_none() {
             return Err(invalid("mode = \"gate\" requires outputs.digest"));
-        }
-        for p in &self.redact.patterns {
-            if !["email", "ip", "token"].contains(&p.as_str()) {
-                return Err(invalid(format!("redact.patterns: unknown pattern {p:?}")));
-            }
         }
         Ok(())
     }

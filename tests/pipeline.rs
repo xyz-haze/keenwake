@@ -1,9 +1,9 @@
 use keenwake::backend::request_body;
-use keenwake::config::{Config, Question};
+use keenwake::config::{Config, Mode, Question};
 use keenwake::decide::{Kind, Target};
 use keenwake::mapping::{extract, Alert, Status};
 use keenwake::pipeline::{finish, prepare};
-use keenwake::redact::Redactor;
+use keenwake::redact::{Pattern, Redactor};
 use keenwake::store::{DecisionRow, Store};
 use proptest::prelude::*;
 
@@ -15,7 +15,7 @@ fn cfg(mode: &str) -> Config {
     )).unwrap()
 }
 fn red() -> Redactor {
-    Redactor::new(&["email".into(), "ip".into(), "token".into()])
+    Redactor::new(&[Pattern::Email, Pattern::Ip, Pattern::Token])
 }
 fn alert(status: Status) -> Alert {
     Alert {
@@ -63,8 +63,8 @@ fn repeated_firing_after_ping_is_repeat_in_gate() {
     s.insert_decision(&DecisionRow {
         event_seq: p1.event_seq,
         decided_at: 1_800_000_000,
-        mode: "gate".into(),
-        kind: "ping".into(),
+        mode: Mode::Gate,
+        kind: Kind::Ping,
         probability: Some(0.9),
         reason: "".into(),
         delivered: true,
@@ -94,8 +94,8 @@ fn replay_reproduces_repeat() {
             s.insert_decision(&DecisionRow {
                 event_seq: pr.event_seq,
                 decided_at: 1_800_000_000 + 60 * i as i64,
-                mode: "gate".into(),
-                kind: r.kind.as_str().into(),
+                mode: Mode::Gate,
+                kind: r.kind,
                 probability: Some(p),
                 reason: String::new(),
                 delivered: r.target == Target::Ping,
@@ -158,8 +158,8 @@ proptest! {
             let pr = prepare(&s, &red(), alert(if *firing { Status::Firing } else { Status::Resolved }), at, WINDOW);
             if pr.needs_model {
                 let r = finish(&c, &pr, Ok(*p));
-                s.insert_decision(&DecisionRow { event_seq: pr.event_seq, decided_at: at, mode: "gate".into(),
-                    kind: r.kind.as_str().into(), probability: Some(*p), reason: String::new(),
+                s.insert_decision(&DecisionRow { event_seq: pr.event_seq, decided_at: at, mode: Mode::Gate,
+                    kind: r.kind, probability: Some(*p), reason: String::new(),
                     delivered: r.target == Target::Ping, backend_ms: None, input_tokens: None });
                 first.push((pr.event_seq, r.kind));
             }

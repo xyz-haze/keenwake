@@ -1,5 +1,6 @@
 use keenwake::config::{Config, Mode, OnError};
 use keenwake::mapping::{extract, FieldSpec};
+use keenwake::redact::Pattern;
 
 const MIN: &str = r#"
 [backend]
@@ -17,7 +18,7 @@ fn defaults_are_observe_and_spec_thresholds() {
     assert_eq!(c.decision.digest_at, "08:00");
     assert_eq!(c.decision.repeat_window_hours, 24);
     assert_eq!(c.backend.timeout_ms, 2000);
-    assert_eq!(c.redact.patterns, vec!["email", "ip", "token"]);
+    assert_eq!(c.redact.patterns, vec![Pattern::Email, Pattern::Ip, Pattern::Token]);
     assert!(c.sources.contains_key("grafana"));
     assert!(c.sources.contains_key("alertmanager"));
 }

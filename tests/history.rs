@@ -1,3 +1,5 @@
+use keenwake::config::Mode;
+use keenwake::decide::Kind;
 use keenwake::history::facts;
 use keenwake::mapping::{Alert, Status};
 use keenwake::store::{DecisionRow, Store};
@@ -78,8 +80,8 @@ fn episode_pinged_sees_only_the_open_episode() {
     s.insert_decision(&DecisionRow {
         event_seq: e1,
         decided_at: t0,
-        mode: "gate".into(),
-        kind: "ping".into(),
+        mode: Mode::Gate,
+        kind: Kind::Ping,
         probability: Some(0.9),
         reason: "".into(),
         delivered: true,
