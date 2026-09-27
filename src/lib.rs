@@ -5,6 +5,7 @@ pub mod config;
 pub mod decide;
 pub mod history;
 pub mod mapping;
+pub mod output;
 pub mod redact;
 pub mod state;
 pub mod store;
