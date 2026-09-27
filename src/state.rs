@@ -29,11 +29,16 @@ pub fn sentence(a: &Alert, f: &Facts) -> String {
         None => parts.push("This alert has never fired before in the last 7 days.".into()),
         Some(med) => {
             let n = f.episodes_7d;
-            parts.push(format!(
-                "It fired {n} times in the last 7 days, and each time it ended, usually within about {med} minutes."
-            ));
+            // Durations are whole minutes, so flaps that end within the minute have a median of 0.
+            if med == 0 {
+                parts.push(format!("It fired {n} times in the last 7 days, and each time it ended within a minute."));
+            } else {
+                parts.push(format!(
+                    "It fired {n} times in the last 7 days, and each time it ended, usually within about {med} minutes."
+                ));
+            }
             if f.firing {
-                if f.minutes > 3 * med {
+                if f.minutes > 3 * med.max(1) {
                     parts.push("This time it has lasted much longer than usual.".into());
                 } else {
                     parts.push("This time it looks like its usual pattern so far.".into());

@@ -57,3 +57,15 @@ fn huge_fields_are_truncated_on_char_boundaries() {
     let s = sentence(&x, &f);
     assert!(s.chars().count() < 2_400);
 }
+
+/// Flaps that end within the minute have a median of 0: one more minute must not read as
+/// "much longer than usual", and the sentence must not say "about 0 minutes".
+#[test]
+fn sub_minute_median() {
+    let f = Facts { env: "prod".into(), firing: true, minutes: 1, episodes_7d: 6, median_minutes: Some(0) };
+    let s = sentence(&a("prod"), &f);
+    assert!(s.contains("It fired 6 times in the last 7 days, and each time it ended within a minute."), "{s}");
+    assert!(s.contains("This time it looks like its usual pattern so far."), "{s}");
+    let f = Facts { minutes: 4, ..f };
+    assert!(sentence(&a("prod"), &f).contains("This time it has lasted much longer than usual."));
+}
