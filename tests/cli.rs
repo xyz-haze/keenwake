@@ -143,13 +143,13 @@ fn check_source(payload: &str) -> (bool, String, String) {
     let body = d.path().join("payload.json");
     std::fs::write(&cfg, MIN_TOML).unwrap();
     std::fs::write(&body, payload).unwrap();
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_keenwake"))
-        .arg("--config")
-        .arg(&cfg)
-        .args(["check-source", "--source", "probe"])
-        .arg(&body)
-        .output()
-        .unwrap();
+    let (cfg, body) = (cfg.to_str().unwrap(), body.to_str().unwrap());
+    run(&["--config", cfg, "check-source", "--source", "probe", body])
+}
+
+/// Runs the real binary with `args`, and returns (exit ok, stdout, stderr).
+fn run(args: &[&str]) -> (bool, String, String) {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_keenwake")).args(args).output().unwrap();
     (out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into())
 }
 
@@ -250,4 +250,27 @@ fn report_without_a_price_shows_tokens_but_no_cost() {
     let text = r.to_string();
     assert!(text.contains("input tokens: 1234\n"), "{text}");
     assert!(!text.contains('$'), "{text}");
+}
+
+/// "No such file or directory (os error 2)" alone does not say which file: name it.
+#[test]
+fn file_errors_name_the_file() {
+    let d = tempfile::tempdir().unwrap();
+    let missing = d.path().join("nope.toml");
+    let (ok, _, stderr) = run(&["--config", missing.to_str().unwrap(), "report"]);
+    assert!(!ok);
+    assert!(stderr.contains(&format!("cannot read config {}", missing.display())), "{stderr}");
+
+    let cfg = d.path().join("keenwake.toml");
+    let db = d.path().join("no-such-dir").join("keenwake.db");
+    std::fs::write(&cfg, format!("{MIN_TOML}\n[store]\npath = {:?}\n", db.to_str().unwrap())).unwrap();
+    let (ok, _, stderr) = run(&["--config", cfg.to_str().unwrap(), "report"]);
+    assert!(!ok);
+    assert!(stderr.contains(&format!("cannot open store {}", db.display())), "{stderr}");
+
+    let payload = d.path().join("payload.json");
+    let (ok, _, stderr) =
+        run(&["--config", cfg.to_str().unwrap(), "check-source", "--source", "probe", payload.to_str().unwrap()]);
+    assert!(!ok);
+    assert!(stderr.contains(&format!("cannot read payload {}", payload.display())), "{stderr}");
 }

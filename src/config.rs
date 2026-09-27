@@ -263,8 +263,8 @@ pub struct Config {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("cannot read config: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("cannot read config {}", path.display())]
+    Io { path: std::path::PathBuf, source: std::io::Error },
     #[error("invalid config: {0}")]
     Invalid(String),
 }
@@ -318,7 +318,8 @@ fn source_spec(name: &str, mut table: toml::Table) -> Result<SourceSpec, ConfigE
 
 impl Config {
     pub fn load(path: &Path) -> Result<Config, ConfigError> {
-        Config::from_toml(&std::fs::read_to_string(path)?)
+        let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Io { path: path.into(), source })?;
+        Config::from_toml(&text)
     }
 
     pub fn from_toml(text: &str) -> Result<Config, ConfigError> {

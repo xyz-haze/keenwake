@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use keenwake::config::Config;
 use keenwake::mapping::{extract, unresolved};
@@ -65,6 +66,11 @@ async fn shutdown_signal() {
     }
 }
 
+/// Opens the store named by the config; sqlite's own error does not say which file.
+fn open_store(cfg: &Config) -> anyhow::Result<Store> {
+    Store::open(&cfg.store.path).with_context(|| format!("cannot open store {}", cfg.store.path))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -72,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.cmd {
         Cmd::CheckSource { source, payload } => {
             let spec = cfg.sources.get(&source).ok_or_else(|| anyhow::anyhow!("unknown source {source}"))?;
-            let body = std::fs::read(payload)?;
+            let body = std::fs::read(&payload).with_context(|| format!("cannot read payload {}", payload.display()))?;
             // Before extracting, so a missing required field is explained by the pointer that missed.
             let warnings = unresolved(spec, &body)?;
             for w in &warnings {
@@ -91,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Cmd::Serve => {
-            let store = Store::open(&cfg.store.path)?;
+            let store = open_store(&cfg)?;
             let listen = cfg.server.listen.clone();
             let app = Arc::new(App::new(cfg, store, now_utc)?);
             let digest_app = app.clone();
@@ -114,7 +120,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Cmd::Report { since, json } => {
-            let store = Store::open(&cfg.store.path)?;
+            let store = open_store(&cfg)?;
             let r = report::build(
                 &store,
                 now_utc() - since,
@@ -128,7 +134,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Cmd::Replay { since } => {
-            let store = Store::open(&cfg.store.path)?;
+            let store = open_store(&cfg)?;
             let app = App::new(cfg, store, now_utc)?;
             let changed = report::replay(&app, now_utc() - since).await;
             if changed.is_empty() {
