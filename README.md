@@ -17,11 +17,11 @@ real on-call rotation. Start in observe mode: it records what it would do and ch
 ## How it works
 
 ```mermaid
-flowchart TD
-    A["An alert arrives"] --> DB[("Every alert and every 'resolved'<br/>is stored (SQLite)")]
-    DB --> F["Facts about the last 7 days of this alert<br/>fired 22 times, usually over within 3 min,<br/>this time: 3 min so far"]
-    F --> M["Small model: should a human be paged now?"]
-    M --> D["ping · escalate · daily digest"]
+flowchart LR
+    A["Alert"] --> DB[("Stored, with every<br/>past alert and 'resolved'")]
+    DB --> F["7-day facts<br/>fired 22 times,<br/>usually over in 3 min"]
+    F --> M["Model:<br/>page now?"]
+    M --> D["ping, escalate<br/>or digest"]
 ```
 
 keenwake does not learn: it remembers. The longer it runs, the more history each alert has, and
