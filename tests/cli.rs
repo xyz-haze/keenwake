@@ -154,10 +154,11 @@ fn run(args: &[&str]) -> (bool, String, String) {
 }
 
 /// A typo in a template key or an env path used to yield "api-health: " and "unknown" silently.
+/// Warnings only: an optional field is often legitimately absent (an alert without description).
 #[test]
-fn check_source_warns_and_fails_on_references_that_resolve_to_nothing() {
+fn check_source_warns_on_references_that_resolve_to_nothing() {
     let (ok, stdout, stderr) = check_source(r#"{"probe": {"name": "api-health"}, "result": {"error": "timeout"}}"#);
-    assert!(!ok, "a warning must fail check-source\n{stderr}");
+    assert!(ok, "a missing optional field warns, it does not fail\n{stderr}");
     assert!(stderr.contains("warning: alert 0, field summary: /result/eror resolved to nothing"), "{stderr}");
     assert!(stderr.contains("warning: alert 0, field env: /labels/stage resolved to nothing"), "{stderr}");
     assert!(stdout.contains("state sent to the model"), "the extraction is still shown\n{stdout}");

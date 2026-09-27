@@ -92,9 +92,6 @@ async fn main() -> anyhow::Result<()> {
                 let p = prepare(&store, &redactor, a, now_utc(), cfg.decision.repeat_window_secs());
                 println!("state sent to the model:\n  {}\n", p.state);
             }
-            if !warnings.is_empty() {
-                anyhow::bail!("{} field reference(s) resolved to nothing, see the warnings above", warnings.len());
-            }
         }
         Cmd::Serve => {
             let store = open_store(&cfg)?;
