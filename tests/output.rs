@@ -1,5 +1,5 @@
 mod common;
-use common::FakeHttp;
+use common::{alert, sink, FakeHttp};
 use keenwake::decide::Kind;
 use keenwake::mapping::{Alert, Status};
 use keenwake::output::{message, Sender};
@@ -8,21 +8,10 @@ use std::sync::{
     Arc,
 };
 
-fn alert() -> Alert {
-    Alert {
-        source: "grafana".into(),
-        status: Status::Firing,
-        identity: "id1".into(),
-        summary: "Disk full".into(),
-        details: "95%".into(),
-        env: "prod".into(),
-        severity: "critical".into(),
-    }
-}
-
 #[test]
 fn message_has_text_and_structured_part() {
-    let m = message(Kind::Ping, &alert(), Some(0.82), "", "fired 3 times in 7 days");
+    let a = Alert { identity: "id1".into(), summary: "Disk full".into(), ..alert(Status::Firing) };
+    let m = message(Kind::Ping, &a, Some(0.82), "", "fired 3 times in 7 days");
     assert!(m["text"].as_str().unwrap().contains("Disk full"));
     assert!(m["text"].as_str().unwrap().contains("0.82"));
     assert_eq!(m["keenwake"]["decision"], "ping");
@@ -32,7 +21,7 @@ fn message_has_text_and_structured_part() {
 
 #[tokio::test]
 async fn delivers_on_success() {
-    let fake = FakeHttp::start(Arc::new(|_| (200, "ok".into(), 0))).await;
+    let fake = FakeHttp::start(sink()).await;
     let dir = tempfile::tempdir().unwrap();
     let s = Sender::new(dir.path().join("u.jsonl").to_str().unwrap().into(), 1).unwrap();
     assert!(s.post(&fake.url, &serde_json::json!({"a": 1})).await);

@@ -1,3 +1,6 @@
+mod common;
+
+use common::{alert, config, decision};
 use keenwake::backend::request_body;
 use keenwake::config::{Config, Mode, Question};
 use keenwake::decide::{route, Kind, Target};
@@ -9,30 +12,35 @@ use proptest::prelude::*;
 
 const WINDOW: i64 = 24 * 3600;
 
-fn cfg(mode: &str) -> Config {
-    Config::from_toml(&format!(
-        "[backend]\nurl='http://x'\nmodel='m-1'\n[decision]\nmode='{mode}'\n[outputs]\nping='http://p'\nescalate='http://e'\ndigest='http://d'\n"
-    )).unwrap()
+fn cfg(mode: Mode) -> Config {
+    config(mode, "http://backend", "http://out")
 }
 fn red() -> Redactor {
     Redactor::new(&[Pattern::Email, Pattern::Ip, Pattern::Token])
 }
-fn alert(status: Status) -> Alert {
-    Alert {
-        source: "s".into(),
-        status,
-        identity: "id".into(),
-        summary: "Disk full on ops@example.com".into(),
-        details: "".into(),
-        env: "prod".into(),
-        severity: "critical".into(),
+
+/// Prepares an alert at `at`, and if it needs the model, routes it with probability `p` and
+/// stores the decision the way `serve` would (a ping or untriaged in gate is delivered).
+fn decide_and_store(c: &Config, s: &Store, status: Status, at: i64, p: f64) -> Option<(i64, Kind)> {
+    let pr = prepare(s, &red(), alert(status), at, WINDOW);
+    if !pr.needs_model {
+        return None;
     }
+    let r = route(&c.decision, Some(p), pr.already_pinged);
+    s.insert_decision(&DecisionRow {
+        mode: Mode::Gate,
+        probability: Some(p),
+        delivered: r.target == Target::Ping,
+        ..decision(pr.event_seq, at, r.kind)
+    });
+    Some((pr.event_seq, r.kind))
 }
 
 #[test]
 fn prepare_redacts_before_storing_and_building_state() {
     let s = Store::memory();
-    let p = prepare(&s, &red(), alert(Status::Firing), 1_800_000_000, WINDOW);
+    let a = Alert { summary: "Disk full on ops@example.com".into(), ..alert(Status::Firing) };
+    let p = prepare(&s, &red(), a, 1_800_000_000, WINDOW);
     assert!(!p.state.contains("ops@example.com"));
     assert!(!s.events_since(0)[0].alert.summary.contains("ops@example.com"));
     assert!(p.needs_model);
@@ -56,20 +64,15 @@ fn resolved_for_unknown_identity_is_harmless() {
 #[test]
 fn repeated_firing_after_ping_is_repeat_in_gate() {
     let s = Store::memory();
-    let c = cfg("gate");
+    let c = cfg(Mode::Gate);
     let p1 = prepare(&s, &red(), alert(Status::Firing), 1_800_000_000, WINDOW);
     let r1 = route(&c.decision, Some(0.9), p1.already_pinged);
     assert_eq!(r1.target, Target::Ping);
     s.insert_decision(&DecisionRow {
-        event_seq: p1.event_seq,
-        decided_at: 1_800_000_000,
         mode: Mode::Gate,
-        kind: Kind::Ping,
         probability: Some(0.9),
-        reason: "".into(),
         delivered: true,
-        backend_ms: None,
-        input_tokens: None,
+        ..decision(p1.event_seq, 1_800_000_000, Kind::Ping)
     });
     let p2 = prepare(&s, &red(), alert(Status::Firing), 1_800_000_060, WINDOW);
     assert!(p2.already_pinged);
@@ -82,29 +85,15 @@ fn repeated_firing_after_ping_is_repeat_in_gate() {
 /// and that replaying it from stored events and decisions reproduces the same kinds.
 #[test]
 fn replay_reproduces_repeat() {
-    let c = cfg("gate");
+    let c = cfg(Mode::Gate);
     let s = Store::memory();
     let statuses = [Status::Firing, Status::Firing, Status::Resolved, Status::Firing];
     let p = 0.9;
-    let mut first = Vec::new();
-    for (i, status) in statuses.iter().enumerate() {
-        let pr = prepare(&s, &red(), alert(*status), 1_800_000_000 + 60 * i as i64, WINDOW);
-        if pr.needs_model {
-            let r = route(&c.decision, Some(p), pr.already_pinged);
-            s.insert_decision(&DecisionRow {
-                event_seq: pr.event_seq,
-                decided_at: 1_800_000_000 + 60 * i as i64,
-                mode: Mode::Gate,
-                kind: r.kind,
-                probability: Some(p),
-                reason: String::new(),
-                delivered: r.target == Target::Ping,
-                backend_ms: None,
-                input_tokens: None,
-            });
-            first.push((pr.event_seq, r.kind));
-        }
-    }
+    let first: Vec<(i64, Kind)> = statuses
+        .iter()
+        .enumerate()
+        .filter_map(|(i, status)| decide_and_store(&c, &s, *status, 1_800_000_000 + 60 * i as i64, p))
+        .collect();
     let kinds: Vec<Kind> = first.iter().map(|(_, k)| *k).collect();
     assert_eq!(kinds, vec![Kind::Ping, Kind::Repeat, Kind::Ping]);
 
@@ -122,7 +111,7 @@ proptest! {
         // every name a grafana preset field reads is excluded: those are mapped, so they may legitimately reach the model
         prop_assume!(!["status","labels","annotations","fingerprint","alertname","env","environment",
                        "severity","summary","description","message"].contains(&field.as_str()));
-        let c = cfg("observe");
+        let c = cfg(Mode::Observe);
         let body = serde_json::json!({"alerts": [{
             "status": "firing", "fingerprint": "f1",
             "labels": {"alertname": "A", "env": "prod", "severity": "critical", field.clone(): secret.clone()},
@@ -141,19 +130,12 @@ proptest! {
     // Invariant 6: same config, deterministic backend -> same decisions when replayed.
     #[test]
     fn replay_is_deterministic(ps in prop::collection::vec((0.0f64..=1.0, any::<bool>()), 1..30)) {
-        let c = cfg("gate");
+        let c = cfg(Mode::Gate);
         let s = Store::memory();
         let mut first = Vec::new();
         for (i, (p, firing)) in ps.iter().enumerate() {
-            let at = 1_800_000_000 + 60 * i as i64;
-            let pr = prepare(&s, &red(), alert(if *firing { Status::Firing } else { Status::Resolved }), at, WINDOW);
-            if pr.needs_model {
-                let r = route(&c.decision, Some(*p), pr.already_pinged);
-                s.insert_decision(&DecisionRow { event_seq: pr.event_seq, decided_at: at, mode: Mode::Gate,
-                    kind: r.kind, probability: Some(*p), reason: String::new(),
-                    delivered: r.target == Target::Ping, backend_ms: None, input_tokens: None });
-                first.push((pr.event_seq, r.kind));
-            }
+            let status = if *firing { Status::Firing } else { Status::Resolved };
+            first.extend(decide_and_store(&c, &s, status, 1_800_000_000 + 60 * i as i64, *p));
         }
         for (seq, kind) in first {
             let ev = s.events_since(0).into_iter().find(|e| e.seq == seq).unwrap();

@@ -1,16 +1,17 @@
+mod common;
+
+use common::alert;
 use keenwake::history::Facts;
 use keenwake::mapping::{Alert, Status};
 use keenwake::state::sentence;
 
+/// The alert of the spike whose wording `sentence` mirrors.
 fn a(env: &str) -> Alert {
     Alert {
-        source: "s".into(),
-        status: Status::Firing,
-        identity: "i".into(),
         summary: "CPU usage above 90% on etl-runner-2".into(),
         details: "CPU at 92% for 2m".into(),
         env: env.into(),
-        severity: "critical".into(),
+        ..alert(Status::Firing)
     }
 }
 

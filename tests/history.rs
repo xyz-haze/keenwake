@@ -1,21 +1,12 @@
+mod common;
+
+use common::{alert, decision};
 use keenwake::config::Mode;
 use keenwake::decide::Kind;
 use keenwake::history::facts;
-use keenwake::mapping::{Alert, Status};
+use keenwake::mapping::Status;
 use keenwake::store::{DecisionRow, Store};
 use proptest::prelude::*;
-
-fn alert(status: Status) -> Alert {
-    Alert {
-        source: "s".into(),
-        status,
-        identity: "id".into(),
-        summary: "x".into(),
-        details: "".into(),
-        env: "prod".into(),
-        severity: "critical".into(),
-    }
-}
 
 const MIN: i64 = 60;
 
@@ -77,17 +68,7 @@ fn episode_pinged_sees_only_the_open_episode() {
     let s = Store::memory();
     let t0 = 1_800_000_000;
     let e1 = s.insert_event(&alert(Status::Firing), t0);
-    s.insert_decision(&DecisionRow {
-        event_seq: e1,
-        decided_at: t0,
-        mode: Mode::Gate,
-        kind: Kind::Ping,
-        probability: Some(0.9),
-        reason: "".into(),
-        delivered: true,
-        backend_ms: Some(5),
-        input_tokens: Some(10),
-    });
+    s.insert_decision(&DecisionRow { mode: Mode::Gate, delivered: true, ..decision(e1, t0, Kind::Ping) });
     let e2 = s.insert_event(&alert(Status::Firing), t0 + MIN);
     assert!(s.episode_pinged("id", e2, 0));
     assert!(s.episode_pinged("id", e2, t0), "a ping decided exactly at the window start still counts");
