@@ -9,9 +9,9 @@ keenwake is a proof of concept. At a previous job I was pinged for every alert, 
 had cleared on their own before I could even look.
 
 Deciding whether to wake someone up is usually a quick judgment, not a long reasoning task. That
-is what "System One" models like Jev are built for (the name comes from Kahneman's fast, intuitive
-thinking): they answer one narrow question, here "should a human be paged now?", with a
-probability, in about 0.2 s and for a fraction of a cent per alert. A general-purpose LLM can
+is what small "System One" models like Jev are built for: a fast judgment on one narrow question,
+here "should a human be paged now?", answered with a probability in about 0.2 s and for a fraction
+of a cent per alert. A general-purpose LLM can
 answer it too, but it is typically slower and costs more per call, which matters when it sits in
 front of every page.
 
