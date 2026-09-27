@@ -145,7 +145,8 @@ Resolved alerts are skipped, since alertsift never sends them to a model.
 
 - **Laya** (`typed-decisions`, via the sidecar, on a local RTX 3080): **AUC 0.987 over 210 firing
   alerts** (`tests/corpus.rs`, run with `--ignored`).
-- **Jev**: not measured yet.
+- **Jev** (`jev-1.13.0`, hosted API): **AUC 1.000 over the same 210 firing alerts**. The 210
+  sequential calls took 49.6 s end to end, about 0.24 s per call including the network round trip.
 
 For 5 of the 210 alerts, the resolved-percentage figure baked into the sentence differs slightly
 from the source data, due to rounding. That percentage, here and in production, counts every
@@ -159,7 +160,8 @@ apart.
 - One staging-noise alert was pinged anyway. Noise suppression in this demo is not perfect: the
   model only had a few minutes of history to learn "this one usually clears itself" from.
 - Total run time: about 10 minutes (592 s), including model load.
-- Jev through alertsift: latency and cost not measured yet.
+- The demo runs Laya only; Jev was measured on the corpus above. Jev's cost per alert through
+  alertsift is not measured yet (the backend reports input tokens; `alertsift report` sums them).
 
 ### Fuzzing
 
