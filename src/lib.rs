@@ -6,6 +6,7 @@ pub mod decide;
 pub mod history;
 pub mod mapping;
 pub mod output;
+pub mod pipeline;
 pub mod redact;
 pub mod state;
 pub mod store;
