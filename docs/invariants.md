@@ -10,10 +10,17 @@ Rules the code must never break. Each one has a test; the test name is given.
 2. **Redaction.** `summary` and `details` are redacted before they are stored or sent to a
    model; `identity`, `env` and `severity` are stored and sent as received. Property tests prove
    that the output never contains an email address (and that redacting twice equals redacting
-   once) or an IPv4 address; IPv6 addresses and tokens are covered by examples only.
+   once), an IPv4 address, a secret after a known key (`api_key=`, `token:`, `password=`, ...)
+   or a password in a URL (`scheme://user:pass@host`); IPv6 addresses and the other token kinds
+   (AWS key ids, `Authorization` headers, Slack and Discord webhook URLs, JWTs) are covered by
+   examples only. The mapping error quoted in an untriaged ping is redacted too.
    `tests/redact.rs::output_never_contains_an_email_and_is_idempotent`,
    `tests/redact.rs::output_never_contains_an_ipv4`,
+   `tests/redact.rs::a_secret_after_a_known_key_never_survives`,
+   `tests/redact.rs::a_url_password_never_survives`,
    `tests/redact.rs::scrubs_each_kind` (IPv6, bearer and prefixed tokens),
+   `tests/redact.rs::scrubs_credentials_in_realistic_alert_text`,
+   `tests/server.rs::bad_status_value_is_redacted_in_the_untriaged_text`,
    `tests/pipeline.rs::prepare_redacts_before_storing_and_building_state`
 
 3. **Fail-open.** In gate mode with `on_error = "ping"`, a backend failure pings. In observe

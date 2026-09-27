@@ -93,6 +93,8 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
     let alerts = match extract(source, spec, body) {
         Ok(a) => a,
         Err(e) => {
+            // The error can quote a payload value (a bad status): redact it like the body.
+            let e: String = app.redactor.clean(&e.to_string()).chars().take(300).collect();
             eprintln!("keenwake: mapping error from source {source}: {e}");
             app.metrics.inc("keenwake_mapping_errors_total", &[("source", source)]);
             send_untriaged_raw(app, source, body, format!("[untriaged] unreadable alert from {source}: {e}")).await;

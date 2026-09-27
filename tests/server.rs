@@ -311,3 +311,17 @@ async fn body_at_the_alert_cap_is_decided() {
     handle_body(&a, "grafana", &many_alerts(3)).await;
     assert_eq!(out.kinds(), vec!["ping", "ping", "ping"]);
 }
+
+/// The status value is quoted in the mapping error, which reaches the untriaged ping's text.
+#[tokio::test]
+async fn bad_status_value_is_redacted_in_the_untriaged_text() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = short_timeout_app(Mode::Gate, &be, &out);
+    handle_body(&a, "grafana", &grafana("disk", "f1", "ops@example.com AKIAIOSFODNN7EXAMPLE")).await;
+    let sent = out.bodies();
+    assert_eq!(sent[0]["keenwake"]["decision"], "untriaged");
+    let text = sent[0]["text"].as_str().unwrap();
+    assert!(text.contains("neither firing nor resolved"), "{text}");
+    assert!(!text.contains("ops@example.com") && !text.contains("AKIAIOSFODNN7EXAMPLE"), "{text}");
+}
