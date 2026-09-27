@@ -10,7 +10,7 @@ as it always does, goes into a daily digest instead of waking you up.
 **Status: v0.1, a proof of concept.** Tested on a synthetic corpus and a Docker demo, not yet on a
 real on-call rotation. Start in observe mode: it records what it would do and changes nothing.
 
-![The same CPU alert flaps five times: keenwake pages the first one, then puts the others in the digest](docs/img/demo.gif)
+![A CPU alert flaps four times: paged the first time, then sent to the digest. Then it stays up: digest at first, paged once it lasts far longer than usual](docs/img/demo.gif)
 
 <sub>A real run with the hosted Jev model. Source: [demo/gif/keenwake.tape](demo/gif/keenwake.tape).</sub>
 
@@ -132,6 +132,8 @@ Ideas, built if people ask for them in an issue:
   settling only the disagreements.
 - An LLM gathers logs and metrics before an escalated page goes out.
 - Import past alert history from the on-call tool, so keenwake does not start blind.
+- Follow the trend inside an alert. Today a CPU climbing from 91% to 99% while it fires stays in the
+  digest (measured): only how long it lasts counts, not whether it gets worse.
 
 ## License
 
