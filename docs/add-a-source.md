@@ -5,8 +5,22 @@ These steps work the same for a person or a coding agent.
 
 ## For your own setup
 
-1. **Capture a real payload** from the tool into `payload.json`. Don't write one from memory or
-   from vendor docs: what a tool sends often differs from what it documents.
+1. **Capture a real payload.** Start a one-shot listener that saves the next webhook it receives
+   to `payload.json`, then exits:
+
+   ```sh
+   python3 -c '
+   import http.server as h
+   class H(h.BaseHTTPRequestHandler):
+       def do_POST(s):
+           open("payload.json", "wb").write(s.rfile.read(int(s.headers["Content-Length"])))
+           s.send_response(200); s.end_headers()
+   h.HTTPServer(("", 9000), H).handle_request()'
+   ```
+
+   Point the tool's webhook at `http://<this-machine>:9000` and send a test notification (most
+   tools have a "Test" button). Don't write a payload from memory or from vendor docs: what a
+   tool sends often differs from what it documents.
 
 2. **Map it in your `keenwake.toml`.** Example: a health-check script that posts
    `{"check": "backup", "state": "KO", "line": "..."}`.
