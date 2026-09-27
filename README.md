@@ -28,6 +28,9 @@ Decide which alerts deserve to wake a human, and prove it with numbers.
    > time it looks like its usual pattern so far. Alert: CPU above 90% on etl-2. CPU at 92% for
    > 2m. Severity label: critical.
 
+   alertsift cannot tell a self-resolution from a human fix — both look like the same `resolved`
+   event — so that "resolved on its own" percentage counts every resolution.
+
 8. The backend (Jev or Laya — same API either way) answers one question, `page_now`: a
    probability that a human should be paged right now.
 9. `decide` turns that probability into `ping`, `escalate` or `digest` using two thresholds, or
@@ -130,7 +133,9 @@ trust the new numbers.
 
 ### Corpus (synthetic, a ceiling — not a production result)
 
-224 alerts, written by an LLM from 16 templates, run through the real backend and real pipeline.
+224 alerts, written by an LLM from 16 templates, run through the real sentence builder and the
+real backend; the history facts (episode counts, resolved fraction, median duration) are the
+corpus's own precomputed, synthetic fields, not recomputed from a simulated event history.
 Resolved alerts are skipped, since alertsift never sends them to a model.
 
 - **Laya** (`typed-decisions`, via the sidecar, on a local RTX 3080): **AUC 0.987 over 210 firing
@@ -138,7 +143,9 @@ Resolved alerts are skipped, since alertsift never sends them to a model.
 - **Jev**: not measured yet.
 
 For 5 of the 210 alerts, the resolved-percentage figure baked into the sentence differs slightly
-from the source data, due to rounding.
+from the source data, due to rounding. That percentage, here and in production, counts every
+resolution alertsift sees — self-healed or human-fixed alike, since it has no way to tell them
+apart.
 
 ### Demo (measured — `demo/e2e.sh`, Laya on CPU in Docker, gate mode, one run)
 
