@@ -3,11 +3,25 @@
   <img alt="keenwake: pages you only for alerts that don't usually clear up quickly. In one demo run, 9 pages without keenwake, 3 with it, both real incidents paged." src="docs/img/hero-light.svg">
 </picture>
 
+## Why this exists
+
+keenwake is a proof of concept. At a previous job I was pinged for every alert, and most of them
+had cleared on their own before I could even look.
+
+Deciding whether to wake someone up is usually a quick judgment, not a long reasoning task. That
+is what "System One" models like Jev are built for (the name comes from Kahneman's fast, intuitive
+thinking): they answer one narrow question, here "should a human be paged now?", with a
+probability, in about 0.2 s and for a fraction of a cent per alert. A general-purpose LLM can
+answer it too, but it is typically slower and costs more per call, which matters when it sits in
+front of every page.
+
+## What it does
+
 keenwake sits next to Grafana or Alertmanager. It remembers every alert, and before paging you it
 checks what that same alert did over the last 7 days. An alert that flaps and clears within minutes,
 as it always does, goes into a daily digest instead of waking you up.
 
-**Status: v0.1, a proof of concept.** Tested on a synthetic corpus and a Docker demo, not yet on a
+**Status: v0.1.** Tested on a synthetic corpus and a Docker demo, not yet on a
 real on-call rotation. Start in observe mode: it records what it would do and changes nothing.
 
 ![A CPU alert flaps four times: paged the first time, then sent to the digest. Then it stays up: digest at first, paged once it lasts far longer than usual](docs/img/demo.gif)
