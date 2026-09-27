@@ -1,0 +1,19 @@
+groups:
+  - name: demo
+    interval: 5s
+    rules:
+      - alert: HighCPU
+        expr: demo_cpu > 90
+        for: 5s
+        labels: {severity: critical}
+        annotations: {summary: "CPU above 90% on {{ $labels.instance }}", description: "CPU at {{ $value }}%"}
+      - alert: HighErrorRate
+        expr: demo_error_ratio > 0.05
+        for: 5s
+        labels: {severity: critical}
+        annotations: {summary: "5xx above 5% on {{ $labels.instance }}", description: "{{ $value | humanizePercentage }} of requests failed"}
+      - alert: DiskAlmostFull
+        expr: demo_disk > 95
+        for: 5s
+        labels: {severity: warning}
+        annotations: {summary: "Disk above 95% on {{ $labels.instance }}"}

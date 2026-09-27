@@ -5,3 +5,4 @@ undelivered.jsonl
 /fuzz/target
 /fuzz/corpus
 /fuzz/artifacts
+/demo/out

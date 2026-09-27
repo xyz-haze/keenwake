@@ -1,0 +1,30 @@
+name: alertsift-demo
+services:
+  fakeapp:
+    image: python:3.12-slim
+    command: python /app/fakeapp.py
+    volumes: ["./fakeapp.py:/app/fakeapp.py:ro"]
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    volumes: ["./prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./rules.yml:/etc/prometheus/rules.yml:ro"]
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    volumes: ["./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"]
+  laya:
+    build: ../sidecar
+    volumes: ["laya-models:/models"]
+    healthcheck: {test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8771/healthz')"], interval: 10s, retries: 90, start_period: 60s}
+  alertsift:
+    build: ..
+    volumes: ["./alertsift.toml:/etc/alertsift/alertsift.toml:ro", "alertsift-data:/data"]
+    depends_on: {laya: {condition: service_healthy}}
+  sink:
+    image: python:3.12-slim
+    command: python /app/sink.py
+    volumes: ["./sink.py:/app/sink.py:ro", "./out:/out"]
+  chaos:
+    image: python:3.12-slim
+    command: python /app/chaos.py
+    volumes: ["./chaos.py:/app/chaos.py:ro", "./out:/out"]
+    depends_on: [fakeapp, prometheus, alertmanager, alertsift]
+volumes: {laya-models: {}, alertsift-data: {}}
