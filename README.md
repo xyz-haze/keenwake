@@ -8,6 +8,9 @@ same alert, asks a small model whether a human should be woken up now, and answe
 `escalate` or "put it in tomorrow's digest". It starts in observe mode: it records what it would
 have done and changes nothing, so you can measure it on your own alerts before trusting it.
 
+**Status: v0.1, a proof of concept.** Tested on a synthetic corpus and a Docker demo, not yet on a
+real on-call rotation. Run it in observe mode.
+
 ## What it sees, what it decides
 
 An alert arrives: `CPU above 90% on etl-2`, severity `critical`, firing for 3 minutes. keenwake
@@ -167,6 +170,20 @@ median backend latency: 273 ms
 - You want it to act on alerts. It only decides who gets told, and when.
 - You cannot afford a missed page and cannot run it in observe first.
 - Your alerting tool does not send `resolved` notifications: without them there is no history.
+
+## Where this could go
+
+These are ideas, not promises. They get built if people use keenwake and ask for them: open an
+issue.
+
+- **Claude and the fast model improving each other.** Claude rereads past decisions after the
+  fact ("I would not have woken you, because..."), turns what it finds into rules for the fast
+  model, and a human settles only the cases where they disagree. Measured on alerts neither has
+  seen before.
+- **Claude on escalated alerts.** Before a page goes out, gather logs and metrics so the person
+  woken up starts with context.
+- **Import past alert history** from the on-call tool, so keenwake does not start blind.
+- **Tell a self-resolution from a human fix**, which it cannot do today.
 
 ## More
 
