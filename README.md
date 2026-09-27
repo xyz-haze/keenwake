@@ -1,205 +1,135 @@
 # keenwake
 
-Decide which alerts deserve to wake a human, and prove it with numbers.
+**Pages you only for alerts that don't usually fix themselves.**
 
-## How it works
+keenwake sits next to Grafana or Alertmanager. For each alert it looks at the last 7 days of that
+same alert, asks a small model whether a human should be woken up now, and answers `ping`,
+`escalate` or "put it in tomorrow's digest". It starts in observe mode: it records what it would
+have done and changes nothing, so you can measure it on your own alerts before trusting it.
 
-1. Your alerting tool posts a webhook to `/hook/{source}`. `/hook` has no authentication in V1:
-   keep keenwake on an internal network. `{source}` is either a built-in preset
-   (`grafana`, `alertmanager`) or a `[source.name]` section in your `keenwake.toml`. An
-   unrecognised source gets a `404` and is counted in `/metrics`.
-2. The handler queues the body and replies `200` immediately — a slow backend never makes the
-   source wait. One worker decides queued bodies one at a time, in arrival order, so a firing is
-   fully decided before its `resolved` is looked at. If the queue (10 000 bodies) is full, the
-   handler replies `503` so the source retries later. On SIGINT or SIGTERM, keenwake stops
-   accepting webhooks and gives the worker up to 8 seconds to finish the queue.
-3. The mapping extracts a fixed set of fields from the payload — `status`, `identity`, `summary`,
-   `details`, `env`, `severity` — using five primitives (`path`, `first_of`, `map`, `const`,
-   `template`). This is a whitelist: anything not mapped never leaves this step. See
-   `docs/add-a-source.md`.
-4. `redact` strips emails, IP addresses and tokens from `summary` and `details` before anything
-   is stored or sent anywhere. `identity`, `env` and `severity` are stored and sent as received.
-5. The event goes into SQLite. If the alert is `resolved`, its episode is closed and no model is
-   called — ever.
-6. Otherwise, keenwake computes facts about this identity's last 7 days from stored events: how
-   many times it fired, what fraction resolved on its own, the median time to resolve, how long
-   the current episode has run.
-7. Those facts, in plain English, go ahead of the alert text in one sentence sent to the backend.
-   Example, a Grafana alert with history behind it:
+## What it sees, what it decides
 
-   > Environment: prod. The alert is still firing, for 3 minutes so far. It fired 22 times in the
-   > last 7 days and resolved on its own 100% of the time, usually within about 3 minutes. This
-   > time it looks like its usual pattern so far. Alert: CPU above 90% on etl-2. CPU at 92% for
-   > 2m. Severity label: critical.
+An alert arrives: `CPU above 90% on etl-2`, severity `critical`, firing for 3 minutes. keenwake
+turns its history into plain facts and puts them in front of the alert text:
 
-   keenwake cannot tell a self-resolution from a human fix — both look like the same `resolved`
-   event — so that "resolved on its own" percentage counts every resolution.
+> Environment: prod. The alert is still firing, for 3 minutes so far. It fired 22 times in the
+> last 7 days, and each time it ended, usually within about 3 minutes. This time it looks like its
+> usual pattern so far. Alert: CPU above 90% on etl-2. CPU at 92% for 2m. Severity label: critical.
 
-8. The backend (Jev or Laya — same API either way) answers one question, `page_now`: a
-   probability that a human should be paged right now.
-9. `decide` turns that probability into `ping`, `escalate` or `digest` using two thresholds, or
-   `untriaged` if the backend failed. A higher probability never yields a less urgent decision.
-10. `output` sends the result according to the mode below. Every decision is recorded regardless
-    of mode, so `report` and `replay` always have something to work with.
+The model returns the probability that someone should be paged now. Low: the alert goes into the
+daily digest. If the same alert is still firing 40 minutes later, the facts change ("This time it
+has lasted much longer than usual") and so does the answer.
 
-## Two modes
-
-Observe is the default and the recommended way to start: zero risk, since your alerting tool
-keeps sending alerts wherever it already sends them, and keenwake just gets a copy.
-
-```
-observe:  your alerting tool ─┬─→ your usual destination   (unchanged)
-                               └─→ keenwake                (decides, records, sends nothing)
-
-gate:     your alerting tool ──→ keenwake ──→ webhooks     (only what deserves a ping)
+```mermaid
+flowchart LR
+    A[Grafana / Alertmanager] -->|webhook| K[keenwake]
+    K --> H[(7-day history<br/>SQLite)]
+    H --> K
+    K -->|facts + alert text| M[model<br/>hosted Jev or local Laya]
+    M -->|p page_now| K
+    K -->|observe: record only| R[report / replay]
+    K -->|gate| O[ping / escalate / digest webhooks]
 ```
 
-In `observe`, an optional `outputs.verdict` webhook receives every verdict ("probably noise,
-0.12") if you want to watch it work live. In `gate`, the same decision is followed by an actual
-send. The intended path is: run `observe` for a week or two, read `keenwake report`, then switch
-to `gate`.
+## How it compares
 
-## Quick start
-
-```
-cd demo
-./e2e.sh
-```
-
-This builds and runs the full demo stack — Prometheus, Alertmanager, three services that flake on
-purpose, a chaos script that injects real incidents and background noise, keenwake running
-against the local Laya backend, and a `sink` that logs every outgoing webhook — waits for the
-chaos script to finish, then checks that every injected real incident got a `ping`. The exit code
-is the verdict. First run downloads the Laya checkpoint from Hugging Face; expect about 10 minutes
-end to end (measured: 592 s).
-
-To watch it by hand instead:
-
-```
-cd demo
-docker compose up
-```
-
-and follow the `sink` container's logs — every webhook keenwake sends out is printed there.
-
-## Configuration
-
-```toml
-[backend]
-url = "https://api.typesafe.ai"
-model = "jev-1.13.0"
-api_key_env = "TYPESAFE_API_KEY"
-timeout_ms = 2000
-
-[decision]
-mode = "observe"        # or "gate"
-on_error = "ping"       # in gate: "ping" or "drop"
-ping = 0.55
-digest = 0.30
-digest_at = "08:00"
-repeat_window_hours = 24  # in gate: how long a delivered ping suppresses repeats
-
-[outputs]
-ping = "https://example.org/ping"
-escalate = "https://example.org/escalate"
-digest = "https://example.org/digest"
-verdict = "https://example.org/verdict"   # optional, useful in observe
-
-[redact]
-patterns = ["email", "ip", "token"]
-
-[source.homelab]
-alerts = ""
-[source.homelab.fields]
-status = { path = "/state", map = { KO = "firing", OK = "resolved" } }
-identity = { path = "/check" }
-summary = { template = "{check} failed: {line}" }
-env = { const = "prod" }
-```
-
-In `gate` mode, `outputs.ping`, `outputs.escalate` and `outputs.digest` are all required —
-keenwake refuses to start otherwise. `model` must pin a version; a value containing `"latest"`
-is refused too.
-
-## Backends
-
-- **Jev** — hosted. `api_key_env` names the environment variable that holds the API key.
-- **Laya** — a local sidecar (`sidecar/`), no data leaves the machine. Runs the
-  `typed-decisions` checkpoint, on CPU or GPU.
-
-Both speak the same `POST {url}/v1/systemone` API, so switching is a change of `url` and `model`,
-nothing else. Thresholds are not portable between backends, though: in the corpus below, Laya's
-scores sat in a narrower band (roughly 0.40-0.68) than Jev's, so a `ping`/`digest` pair tuned for
-one backend is not guaranteed to make sense for the other. After changing backend, model or
-thresholds, run `keenwake replay --since 7d` to see which past decisions would change before you
-trust the new numbers.
+| | What it does about noise | Decides per alert whether to page |
+|---|---|---|
+| Alertmanager `for:`, grouping, inhibition | Static rules you write and tune | No |
+| PagerDuty Auto-Pause | Holds notifications for alerts that usually auto-resolve | Yes, inside PagerDuty's paid AIOps add-on |
+| Keep, Robusta | Dedup, grouping, enrichment, workflows | No |
+| HolmesGPT | Investigates root cause once an alert has fired | No |
+| **keenwake** | Reads each alert's own history and text | Yes, with the facts it used in every decision; can run fully local |
 
 ## Numbers
 
-### Corpus (synthetic, a ceiling — not a production result)
+A synthetic corpus of 210 firing alerts (15 scenarios, written by an LLM, labelled "should page"
+or not). AUC is the chance that a random alert that should page scores above one that should not.
 
-224 alerts, written by an LLM from 16 templates, run through the real sentence builder and the
-real backend; the history facts (episode counts, resolved fraction, median duration) are the
-corpus's own precomputed, synthetic fields, not recomputed from a simulated event history.
-Resolved alerts are skipped, since keenwake never sends them to a model.
+| Scorer | AUC | Reproduce |
+|---|---|---|
+| A 3-line rule, no model: "over 3x its median, or no history" + "is prod" | 0.931 | `scripts/cargo.sh test --test corpus` |
+| Laya, local (`typed-decisions` @ `55cf4c4e`, RTX 3080) | 0.949 | `--ignored`, see [tests/corpus.rs](tests/corpus.rs) |
+| Jev, hosted (`jev-1.13.0`, 210 calls in 49 s) | 1.000 | same |
 
-- **Laya** (`typed-decisions`, via the sidecar, on a local RTX 3080): **AUC 0.987 over 210 firing
-  alerts** (`tests/corpus.rs`, run with `--ignored`).
-- **Jev** (`jev-1.13.0`, hosted API): **AUC 1.000 over the same 210 firing alerts**. The 210
-  sequential calls took 49.6 s end to end, about 0.24 s per call including the network round trip.
+What this says, and what it does not:
 
-For 5 of the 210 alerts, the resolved-percentage figure baked into the sentence differs slightly
-from the source data, due to rounding. That percentage, here and in production, counts every
-resolution keenwake sees — self-healed or human-fixed alike, since it has no way to tell them
-apart.
+- **History does most of the work.** The rule gets 14 of 15 scenarios right. It cannot tell "TLS
+  certificate expires in 17 hours, renewal failed" from "expires in 22 days, renewal scheduled":
+  their history is identical, only the text differs. Jev reads the text; the rule cannot.
+- **Laya is barely above the rule.** Its value today is that no data leaves the machine, not
+  accuracy. The demo below shows the same thing on live alerts.
+- **This is a ceiling, not a production result.** Each scenario has one label, which makes the task
+  easier than real alerts. The rule was written after looking at the corpus, which flatters it.
+  The number that counts is `keenwake report` on your own alerts after a week in observe.
 
-### Demo (measured — `demo/e2e.sh`, Laya on CPU in Docker, gate mode, one run)
+### Demo, measured end to end
 
-- Decisions: `ping` 5, `escalate` 6, `repeat` (suppressed) 10, `resolved` 6.
-- Both injected real incidents were pinged.
-- One staging-noise alert was pinged anyway. Noise suppression in this demo is not perfect: the
-  model only had a few minutes of history to learn "this one usually clears itself" from.
-- Total run time: about 10 minutes (592 s), including model load.
-- The demo runs Laya only; Jev was measured on the corpus above. Jev's cost per alert through
-  keenwake is not measured yet (the backend reports input tokens; `keenwake report` sums them).
+`demo/e2e.sh` in gate mode, one run per backend. A chaos script injects noise (six short CPU
+flaps, a full disk on staging) then two real incidents (a 5xx spike, a CPU that stays pegged).
 
-### Fuzzing
+| Backend | Real incidents paged | Noise paged | Noise held for the digest | Backend cost |
+|---|---|---|---|---|
+| Jev | 2 of 2 | 1 | 7 | $0.0004 for 21 calls |
+| Laya, on CPU | 2 of 2 | 7 | 0 | none, local |
 
-60 seconds, 8 532 runs against the webhook mapping and pipeline, no crash.
+With Jev, the one noisy page is the very first CPU flap: no history yet, so it pages, as it
+should. The pegged CPU first looked like its usual flap and went to the digest, then paged once it
+outlasted its usual duration. With Laya at the default thresholds, every flap paged: its scores
+barely move with history (0.59 to 0.66 here), which matches its corpus result.
 
-## Failure behaviour
+## Quick start
 
-The principle in `gate` mode: **when in doubt, ping**, unless `on_error = "drop"`. In `observe`
-mode, a failure never changes what the team sees — it is only recorded and counted.
+The demo needs only Docker:
 
-| Failure | In gate mode |
-|---|---|
-| Backend times out, errors, or hits a quota | If `on_error = "ping"` (default): pings, decision kind `untriaged`, reason `"not triaged: backend unavailable (...)"`. If `on_error = "drop"`: nothing is sent, but the decision is still recorded as `untriaged`. |
-| Payload unreadable, or `status` missing or unrecognised | Always pings — regardless of `on_error` — with the redacted raw body (first 4000 characters) and text `"[untriaged] unreadable alert from {source}: {error}"`. The mapping error is also logged to stderr and counted in `keenwake_mapping_errors_total`. |
-| An output webhook fails | 3 attempts with backoff, then a line in `undelivered.jsonl` plus the `keenwake_undelivered_total` metric. |
-| SQLite fails, or processing an alert panics for any other reason | Store operations still panic rather than degrade to "decide without history". The panic is contained to that webhook body: in gate it pings the redacted raw body (first 4000 characters) as `untriaged` with text `"[untriaged] internal error while processing an alert from {source}"`; in observe it is only counted. Either way `keenwake_internal_errors_total` goes up, the error is logged to stderr without the body, and the next webhook is processed normally. A panic while sending the daily digest is logged and counted; the digest loop keeps running. |
-| The webhook queue is full | The source gets `503` and should retry; counted in `keenwake_queue_full_total`. |
-| keenwake itself is down | The source stops getting `200`s. Point a direct fallback contact (e.g. a Slack or PagerDuty webhook) at your alerting tool for this case — keenwake does not provide one. |
+```sh
+cd demo && ./e2e.sh
+```
 
-Repeated notifications of an already-pinged episode — including an untriaged ping while the
-backend is down — do not ping again in gate mode for `decision.repeat_window_hours` (default 24)
-after the last delivered ping; after that window a still-firing identity pings again, so a lost
-`resolved` cannot silence it forever. A `resolved` event goes through when the episode had a
-delivered ping within that window. `/metrics` exposes Prometheus counters (alerts received per source, decisions per kind,
-mapping, backend and internal errors, backend latency, undelivered webhooks, full queue); `/healthz` is a plain
-liveness check.
+It starts Prometheus, Alertmanager, three services that fail on purpose, a chaos script that
+injects real incidents and background noise, keenwake in gate mode with the local Laya model, and a
+sink that logs every page. It exits `0` only if every injected real incident reached the sink as a
+page. The first run downloads the Laya checkpoint (about 800 MB).
 
-## Adding a source
+To run it on your own alerts, write a `keenwake.toml` (see [docs/reference.md](docs/reference.md)),
+then:
 
-See `docs/add-a-source.md`: save a real payload, write a handful of lines of TOML with the five
-mapping primitives, check it with `check-source` before pointing your tool at keenwake. A Claude
-Code skill that does this end to end lives in `.claude/skills/add-source/`.
+```sh
+docker build -t keenwake .
+docker run -e TYPESAFE_API_KEY -v "$PWD/keenwake.toml:/etc/keenwake/keenwake.toml:ro" \
+  -v keenwake-data:/data -p 8080:8080 keenwake
+```
 
-## Invariants
+Add `http://<host>:8080/hook/alertmanager` (or `/hook/grafana`) as an extra receiver, next to the
+one you already have. After a week or two, `keenwake report --since 7d` shows what it would have
+paged and what it would have held back. Switch to `gate` only if you like what you see.
 
-The rules the code must never break — whitelist, redaction, fail-open, monotonicity, history,
-replay — are in `docs/invariants.md`, each backed by a test.
+## Safety
+
+- **Observe is the default.** Your alerts keep going where they go today.
+- **In gate, when in doubt it pages.** Backend down, unreadable alert, internal error: the alert is
+  sent as `untriaged` rather than dropped.
+- **What leaves the machine** with Jev: the sentence above, with emails, IPs and common secrets
+  redacted (best effort). With Laya, nothing.
+- **`/hook` has no authentication.** Keep keenwake on an internal network.
+- **`replay`** re-decides past alerts with a new config or model, so you see what would change
+  before you change it.
+
+## When not to use it
+
+- Your alerts already page only on real problems. keenwake has nothing to remove.
+- You want it to act on alerts. It only decides who gets told, and when.
+- You cannot afford a missed page and cannot run it in observe first.
+- Your alerting tool does not send `resolved` notifications: without them there is no history.
+
+## More
+
+- [docs/reference.md](docs/reference.md): the full pipeline, configuration, repeat rules,
+  redaction, failure behaviour, known limitations.
+- [docs/add-a-source.md](docs/add-a-source.md): plug in a tool other than Grafana or Alertmanager.
+- [docs/invariants.md](docs/invariants.md): the rules the code must never break, each with its
+  test.
 
 ## License
 
-MIT OR Apache-2.0.
+MIT or Apache-2.0, at your option.
