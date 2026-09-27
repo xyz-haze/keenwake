@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Decide which alerts deserve to wake a human, and prove it with numbers."
+repository = "https://github.com/xyz-haze/keenwake"
+readme = "README.md"
+keywords = ["alerting", "on-call", "alertmanager", "grafana", "sre"]
+categories = ["command-line-utilities", "web-programming::http-server"]
+exclude = ["demo/", "tests/", "sidecar/", "fuzz/", "scripts/", ".dockerignore", "Dockerfile"]
 
 [dependencies]
 axum = "0.8"
