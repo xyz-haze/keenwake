@@ -185,3 +185,43 @@ fn digest_is_due_once_per_day_after_its_time() {
     assert!(!due("08:00", Some(&today), day + 9 * 3600));
     assert!(due("08:00", Some(&today), day + 86_400 + 8 * 3600));
 }
+
+#[tokio::test]
+async fn gate_backend_timeout_pings_untriaged() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = app("gate", "ping", &be, &out, "").await; // backend timeout_ms = 300
+    handle_body(&a, "grafana", &grafana("slow", "f1", "firing")).await; // the fake answers after 5 s
+    let sent = out.bodies();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["alertsift"]["decision"], "untriaged");
+    assert!(sent[0]["text"].as_str().unwrap().contains("backend timed out"), "{}", sent[0]["text"]);
+}
+
+#[tokio::test]
+async fn gate_backend_quota_429_pings_untriaged() {
+    let be = FakeHttp::start(Arc::new(|_| (429, "quota exceeded".into(), 0))).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = app("gate", "ping", &be, &out, "").await;
+    handle_body(&a, "grafana", &grafana("p=0.10 disk", "f1", "firing")).await;
+    let sent = out.bodies();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["alertsift"]["decision"], "untriaged");
+    assert!(sent[0]["text"].as_str().unwrap().contains("HTTP 429"), "{}", sent[0]["text"]);
+}
+
+/// Invariant 6 on the shipped `replay`: a gate history recorded by `serve`, replayed with the same
+/// config and the same deterministic backend, changes no decision.
+#[tokio::test]
+async fn replay_of_recorded_gate_history_changes_nothing() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = app("gate", "ping", &be, &out, "").await;
+    for (summary, fp, status) in [("p=0.90 disk", "f1", "firing"), ("p=0.90 disk", "f1", "firing"), ("p=0.90 disk", "f1", "resolved"),
+                                  ("p=0.90 disk", "f1", "firing"), ("p=0.40 cpu", "f2", "firing"), ("p=0.10 queue", "f3", "firing")] {
+        handle_body(&a, "grafana", &grafana(summary, fp, status)).await;
+    }
+    let stored: Vec<String> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind).collect();
+    assert_eq!(stored, vec!["ping", "repeat", "resolved", "ping", "escalate", "digest"]);
+    assert_eq!(alertsift::report::replay(&a, 0).await, vec![]);
+}
