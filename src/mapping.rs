@@ -174,14 +174,29 @@ fn one(name: &str, f: &Fields, item: &Value) -> Result<Alert, MapError> {
     })
 }
 
-pub fn extract(name: &str, spec: &SourceSpec, body: &[u8]) -> Result<Vec<Alert>, MapError> {
+/// One alert of a body that could not be mapped, with the payload item it came from.
+#[derive(Debug, PartialEq)]
+pub struct BadItem {
+    pub error: MapError,
+    pub item: Value,
+}
+
+/// Maps each alert of the body on its own, so one malformed alert does not hide its
+/// neighbours. `Err` only when the body as a whole is unreadable.
+pub fn extract_each(name: &str, spec: &SourceSpec, body: &[u8]) -> Result<Vec<Result<Alert, BadItem>>, MapError> {
     let root: Value = serde_json::from_slice(body).map_err(|_| MapError::NotJson)?;
+    let map = |item: &Value| one(name, &spec.fields, item).map_err(|error| BadItem { error, item: item.clone() });
     if spec.alerts.is_empty() {
-        return Ok(vec![one(name, &spec.fields, &root)?]);
+        return Ok(vec![map(&root)]);
     }
     let items = root
         .pointer(&pointer(&spec.alerts))
         .and_then(Value::as_array)
         .ok_or_else(|| MapError::NoAlerts(spec.alerts.clone()))?;
-    items.iter().map(|item| one(name, &spec.fields, item)).collect()
+    Ok(items.iter().map(map).collect())
+}
+
+/// Like `extract_each`, but the first malformed alert fails the whole body.
+pub fn extract(name: &str, spec: &SourceSpec, body: &[u8]) -> Result<Vec<Alert>, MapError> {
+    extract_each(name, spec, body)?.into_iter().map(|r| r.map_err(|b| b.error)).collect()
 }

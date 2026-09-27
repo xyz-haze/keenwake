@@ -325,3 +325,24 @@ async fn bad_status_value_is_redacted_in_the_untriaged_text() {
     assert!(text.contains("neither firing nor resolved"), "{text}");
     assert!(!text.contains("ops@example.com") && !text.contains("AKIAIOSFODNN7EXAMPLE"), "{text}");
 }
+
+/// One malformed alert in a group is handled as unreadable on its own; its neighbours are
+/// stored and decided normally.
+#[tokio::test]
+async fn one_malformed_alert_does_not_fail_its_group() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = short_timeout_app(Mode::Gate, &be, &out);
+    let alert = |fp: &str, status: &str| {
+        serde_json::json!({"status": status, "fingerprint": fp,
+        "labels": {"env": "prod"}, "annotations": {"summary": format!("p=0.90 {fp}")}})
+    };
+    let body = serde_json::json!({"alerts": [alert("f1", "firing"), alert("f2", "maybe"), alert("f3", "firing")]});
+    assert_eq!(handle_body(&a, "grafana", body.to_string().as_bytes()).await, 200);
+    assert_eq!(out.kinds(), vec!["ping", "untriaged", "ping"]);
+    let raw = out.bodies()[1]["keenwake"]["raw"].as_str().unwrap().to_string();
+    assert!(raw.contains("f2") && !raw.contains("f1") && !raw.contains("f3"), "only the bad alert: {raw}");
+    let decided: Vec<String> = a.store.decisions_since(0).into_iter().map(|(e, _)| e.alert.identity).collect();
+    assert_eq!(decided, vec!["f1", "f3"]);
+    assert!(a.metrics.render().contains("keenwake_mapping_errors_total{source=\"grafana\"} 1"));
+}

@@ -3,7 +3,7 @@
 use crate::backend::{Backend, SetupError};
 use crate::config::{Config, Mode};
 use crate::decide::{resolved_target, route, Kind, Target};
-use crate::mapping::extract;
+use crate::mapping::{extract_each, MapError};
 use crate::metrics::Metrics;
 use crate::output::{message, Sender};
 use crate::pipeline::{facts_line, prepare};
@@ -85,19 +85,24 @@ pub(crate) async fn send_untriaged_raw(app: &App, source: &str, body: &[u8], tex
     app.send(Target::Ping, msg).await;
 }
 
+/// Logs, counts and (in gate) pings the redacted `raw` payload of something that could not be mapped.
+async fn unreadable(app: &App, source: &str, raw: &[u8], e: &MapError) {
+    // The error can quote a payload value (a bad status): redact it like the body.
+    let e: String = app.redactor.clean(&e.to_string()).chars().take(300).collect();
+    eprintln!("keenwake: mapping error from source {source}: {e}");
+    app.metrics.inc("keenwake_mapping_errors_total", &[("source", source)]);
+    send_untriaged_raw(app, source, raw, format!("[untriaged] unreadable alert from {source}: {e}")).await;
+}
+
 pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
     let Some(spec) = app.cfg.sources.get(source) else {
         app.metrics.inc("keenwake_unknown_source_total", &[]);
         return 404;
     };
-    let alerts = match extract(source, spec, body) {
+    let alerts = match extract_each(source, spec, body) {
         Ok(a) => a,
         Err(e) => {
-            // The error can quote a payload value (a bad status): redact it like the body.
-            let e: String = app.redactor.clean(&e.to_string()).chars().take(300).collect();
-            eprintln!("keenwake: mapping error from source {source}: {e}");
-            app.metrics.inc("keenwake_mapping_errors_total", &[("source", source)]);
-            send_untriaged_raw(app, source, body, format!("[untriaged] unreadable alert from {source}: {e}")).await;
+            unreadable(app, source, body, &e).await;
             return 200;
         }
     };
@@ -112,6 +117,13 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
         return 200;
     }
     for alert in alerts {
+        let alert = match alert {
+            Ok(a) => a,
+            Err(bad) => {
+                unreadable(app, source, bad.item.to_string().as_bytes(), &bad.error).await;
+                continue;
+            }
+        };
         app.metrics.inc("keenwake_alerts_total", &[("source", source)]);
         let now = (app.clock)();
         let p = prepare(&app.store, &app.redactor, alert, now, app.cfg.decision.repeat_window_secs());

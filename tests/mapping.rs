@@ -185,3 +185,17 @@ fn fieldspec_rejects_unknown_fields() {
     let res: Result<FieldSpec, _> = serde_json::from_str(bad);
     assert!(res.is_err(), "expected deny_unknown_fields to reject bogus field, got {res:?}");
 }
+
+#[test]
+fn extract_each_maps_alerts_one_by_one() {
+    use keenwake::mapping::{extract_each, MapError};
+    let body = br#"{"alerts":[{"status":"firing","fingerprint":"a","annotations":{"summary":"x"}},
+        {"status":"maybe","fingerprint":"b","annotations":{"summary":"y"}}]}"#;
+    let each = extract_each("grafana", &grafana_like(), body).unwrap();
+    assert_eq!(each[0].as_ref().unwrap().identity, "a");
+    let bad = each[1].as_ref().unwrap_err();
+    assert_eq!(bad.error, MapError::BadStatus("maybe".into()));
+    assert_eq!(bad.item["fingerprint"], "b");
+    assert_eq!(extract("grafana", &grafana_like(), body), Err(MapError::BadStatus("maybe".into())));
+    assert_eq!(extract_each("grafana", &grafana_like(), b"nope"), Err(MapError::NotJson));
+}
