@@ -1,0 +1,24 @@
+[package]
+name = "alertsift"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Decide which alerts deserve to wake a human, and prove it with numbers."
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "signal", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+regex = "1"
+sha2 = "0.10"
+thiserror = "1"
+anyhow = "1"
+
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"

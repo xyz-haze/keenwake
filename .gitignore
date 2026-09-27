@@ -1,0 +1,7 @@
+/target
+/.cargo-cache
+*.db
+undelivered.jsonl
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
