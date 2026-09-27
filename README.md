@@ -3,6 +3,8 @@
   <img alt="keenwake: pages you only for alerts that don't usually clear up quickly. In one demo run, 9 pages without keenwake, 3 with it, both real incidents paged." src="docs/img/hero-light.svg">
 </picture>
 
+[![CI](https://github.com/xyz-haze/keenwake/actions/workflows/ci.yml/badge.svg)](https://github.com/xyz-haze/keenwake/actions/workflows/ci.yml)
+
 ## Why this exists
 
 keenwake is a proof of concept. At a previous job I was pinged for every alert, and most of them
