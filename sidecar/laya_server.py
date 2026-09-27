@@ -4,14 +4,20 @@ Stdlib HTTP server, one model loaded once, calls serialised by a lock (one forwa
 """
 import json
 import os
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+MAX_BODY_BYTES = 1_048_576  # 1 MiB
 
 
 def make_handler(agent):
     lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
+        # A slow or silent client must not hold a request thread forever.
+        timeout = 30
+
         def _send(self, code, body):
             data = body if isinstance(body, bytes) else json.dumps(body).encode()
             self.send_response(code)
@@ -29,13 +35,40 @@ def make_handler(agent):
         def do_POST(self):
             if self.path != "/v1/systemone":
                 return self._send(404, {"error": "not found"})
+
+            raw_length = self.headers.get("Content-Length")
             try:
-                req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
-                state, questions = req["state"], req["questions"]
-            except (ValueError, KeyError, TypeError):
+                length = int(raw_length) if raw_length is not None else 0
+            except ValueError:
+                return self._send(400, {"error": "bad Content-Length"})
+            if length < 0:
+                return self._send(400, {"error": "bad Content-Length"})
+            if length > MAX_BODY_BYTES:
+                # Reject on the declared size alone: never read a body that big.
+                return self._send(413, {"error": "body too large"})
+
+            try:
+                payload = json.loads(self.rfile.read(length))
+            except ValueError:
                 return self._send(400, {"error": "expected JSON with state and questions"})
-            with lock:
-                result = agent.predict(state, questions)
+
+            questions = payload.get("questions") if isinstance(payload, dict) else None
+            shape_ok = (
+                isinstance(payload, dict)
+                and "state" in payload
+                and isinstance(questions, dict)
+                and all(isinstance(v, dict) for v in questions.values())
+            )
+            if not shape_ok:
+                return self._send(400, {"error": "expected JSON with state and questions"})
+            state = payload["state"]
+
+            try:
+                with lock:
+                    result = agent.predict(state, questions)
+            except Exception as exc:
+                print(f"laya sidecar: prediction failed: {exc!r}", file=sys.stderr)
+                return self._send(500, {"error": "prediction failed"})
             self._send(200, result)
 
         def log_message(self, *args):
