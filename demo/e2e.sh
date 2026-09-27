@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End to end: run the demo, wait for chaos to finish, then require that every injected real
-# incident got a ping. Exit code is the verdict.
+# incident was paged: a ping or untriaged decision that reached the sink. Exit code is the verdict.
 #
 # Runs entirely inside the "keenwake-demo" compose project (see the `name:` key in
 # docker-compose.yml) so it never touches any other container on this machine. No host ports
@@ -35,16 +35,27 @@ sleep 15
 
 docker compose exec -T keenwake keenwake --config /etc/keenwake/keenwake.toml report --since 1h --json > out/report.json
 
+# A real incident passes only if a page actually reached the sink's /ping: a `ping` or an
+# `untriaged` (sent to the ping output, when in doubt), not just a decision in the report.
 python3 - <<'EOF'
-import json, sys
+import json, os, sys
+PAGES = {"ping", "untriaged"}
 report = json.load(open("out/report.json"))
-pinged = {r["summary"] for r in report["rows"] if r["kind"] == "ping"}
+paged = []  # what reached /ping as a page: the alert summary, or the raw body of an unreadable one
+if os.path.exists("out/sink.jsonl"):
+    for line in open("out/sink.jsonl"):
+        s = json.loads(line)
+        k = s["body"].get("keenwake", {})
+        if s["path"] == "/ping" and k.get("decision") in PAGES:
+            paged.append(k.get("summary") or k.get("raw", ""))
 missing = []
 for line in open("out/truth.jsonl"):
     t = json.loads(line)
-    if t["page"] == 1 and t["summary"].replace(" (stuck)", "") not in pinged:
-        missing.append(t["summary"])
-noise_pinged = [r for r in report["rows"] if r["kind"] == "ping" and r["summary"].startswith("Disk")]
-print(json.dumps({"decisions": report["by_kind"], "missing_real_incidents": missing, "staging_noise_pinged": len(noise_pinged)}, indent=2))
+    summary = t["summary"].replace(" (stuck)", "")
+    if t["page"] == 1 and not any(summary in p for p in paged):
+        missing.append(summary)
+noise_pinged = [r for r in report["rows"] if r["kind"] in PAGES and r["summary"].startswith("Disk")]
+print(json.dumps({"decisions": report["by_kind"], "real_incidents_not_paged": missing,
+                  "staging_noise_pinged": len(noise_pinged)}, indent=2))
 sys.exit(1 if missing else 0)
 EOF
