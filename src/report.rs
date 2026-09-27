@@ -12,6 +12,9 @@ use std::fmt;
 
 pub const JEV_USD_PER_MTOK: f64 = 0.042;
 
+/// How many decisions the text report lists; `--json` has them all.
+const LISTED_ROWS: usize = 30;
+
 /// A stored event whose decision `replay` would now make differently.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Change {
@@ -23,6 +26,9 @@ pub struct Change {
 
 #[derive(Debug, Serialize)]
 pub struct ReportRow {
+    /// When the alert arrived. Text output only: `--json` rows keep their original fields.
+    #[serde(skip)]
+    pub received_at: i64,
     pub summary: String,
     pub identity: String,
     pub kind: &'static str,
@@ -141,6 +147,7 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
             Kind::Repeat => {}
         }
         out.push(ReportRow {
+            received_at: e.received_at,
             summary: e.alert.summary.clone(),
             identity: e.alert.identity.clone(),
             kind: d.kind.as_str(),
@@ -161,6 +168,22 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
     }
 }
 
+/// `ts` as `YYYY-MM-DD HH:MM UTC`. Days to civil date after Howard Hinnant's `civil_from_days`,
+/// to avoid a date crate for one line of output.
+fn utc_minute(ts: i64) -> String {
+    let (days, secs) = (ts.div_euclid(86_400), ts.rem_euclid(86_400));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02} {:02}:{:02} UTC", secs / 3600, secs % 3600 / 60)
+}
+
 /// The human-readable report printed by `keenwake report`.
 impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -174,7 +197,21 @@ impl fmt::Display for Report {
         if let Some(m) = self.median_backend_ms {
             writeln!(f, "median backend latency: {m} ms")?;
         }
-        writeln!(f, "input tokens: {} (about ${:.4} at Jev list price)", self.input_tokens, self.est_cost_usd)
+        writeln!(f, "input tokens: {} (about ${:.4} at Jev list price)", self.input_tokens, self.est_cost_usd)?;
+        // The counts do not say which alerts were held back: list the latest decisions, oldest first.
+        if self.rows.is_empty() {
+            return Ok(());
+        }
+        writeln!(f, "decisions, most recent last:")?;
+        let hidden = self.rows.len().saturating_sub(LISTED_ROWS);
+        if hidden > 0 {
+            writeln!(f, "  ... {hidden} more, use --json")?;
+        }
+        for r in &self.rows[hidden..] {
+            let p = r.probability.map_or("p=-   ".to_string(), |p| format!("p={p:.2}"));
+            writeln!(f, "  {}  {:<9}  {p}  {}", utc_minute(r.received_at), r.kind, r.summary)?;
+        }
+        Ok(())
     }
 }
 

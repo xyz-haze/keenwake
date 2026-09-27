@@ -164,3 +164,58 @@ fn check_source_is_quiet_and_succeeds_when_everything_resolves() {
     assert!(ok, "{stderr}");
     assert!(!stderr.contains("warning"), "{stderr}");
 }
+
+/// Inserts `n` alerts one minute apart from T0, alternating digest (p=0.12) and ping (p=0.91).
+fn minutes_of_alerts(s: &Store, n: i64) {
+    for i in 0..n {
+        let (kind, p) = if i % 2 == 0 { (Kind::Digest, 0.12) } else { (Kind::Ping, 0.91) };
+        let at = T0 + i * 60;
+        let seq = s.insert_event(&Alert { summary: format!("alert {i}"), ..alert(Status::Firing) }, at);
+        s.insert_decision(&DecisionRow { probability: Some(p), ..decision(seq, at, kind) });
+    }
+}
+
+/// Counts alone do not tell which alerts would have been held back: the text report lists them.
+#[test]
+fn report_text_lists_each_decision_oldest_first() {
+    let s = Store::memory();
+    minutes_of_alerts(&s, 2);
+    let s = build(&s, 0, 0.042, 24 * 3600).to_string();
+    let a = s.find("2027-01-15 08:00 UTC  digest     p=0.12  alert 0").expect(&s);
+    let b = s.find("2027-01-15 08:01 UTC  ping       p=0.91  alert 1").expect(&s);
+    assert!(a < b, "most recent last\n{s}");
+    assert!(!s.contains("more, use --json"), "{s}");
+}
+
+#[test]
+fn report_text_keeps_the_last_30_decisions() {
+    let s = Store::memory();
+    minutes_of_alerts(&s, 32);
+    let s = build(&s, 0, 0.042, 24 * 3600).to_string();
+    assert!(s.contains("  ... 2 more, use --json\n"), "{s}");
+    assert!(!s.contains("  alert 1\n"), "{s}");
+    assert!(s.contains("  alert 2\n"), "{s}");
+    assert!(s.contains("  alert 31\n"), "{s}");
+}
+
+#[test]
+fn report_json_rows_keep_their_fields() {
+    let s = Store::memory();
+    minutes_of_alerts(&s, 1);
+    let v = serde_json::to_value(build(&s, 0, 0.042, 24 * 3600)).unwrap();
+    let keys: Vec<&String> = v["rows"][0].as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["identity", "kind", "probability", "summary"]);
+}
+
+/// The date is computed without a date crate: a leap day and a non-leap century are the traps.
+#[test]
+fn report_text_dates_are_utc_calendar_dates() {
+    let s = Store::memory();
+    for at in [1_835_481_599, 4_107_542_400] {
+        let seq = s.insert_event(&alert(Status::Firing), at);
+        s.insert_decision(&decision(seq, at, Kind::Untriaged));
+    }
+    let s = build(&s, 0, 0.042, 24 * 3600).to_string();
+    assert!(s.contains("  2028-02-29 23:59 UTC  untriaged  p=-     x\n"), "{s}");
+    assert!(s.contains("  2100-03-01 00:00 UTC  untriaged  p=-     x\n"), "{s}");
+}
