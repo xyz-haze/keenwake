@@ -176,9 +176,8 @@ proptest! {
     }
 }
 
-// `#[serde(untagged, deny_unknown_fields)]` on FieldSpec is a known ambiguity (see task-2
-// brief): some serde versions ignore deny_unknown_fields on untagged enums. This crate's
-// pinned serde does honor it, but guard the behavior so a serde bump can't silently regress it.
+// Some serde versions ignore deny_unknown_fields on untagged enums like FieldSpec: the pinned
+// one honors it, and this guards against a serde bump silently dropping it.
 #[test]
 fn fieldspec_rejects_unknown_fields() {
     let bad = r#"{"path":"/x","bogus":1}"#;

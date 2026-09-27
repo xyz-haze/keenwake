@@ -157,7 +157,7 @@ fn digest_is_due_once_per_day_after_its_time() {
 async fn gate_backend_timeout_pings_untriaged() {
     let be = FakeHttp::start(system_one_from_state()).await;
     let out = FakeHttp::start(sink()).await;
-    let (a, _d) = short_timeout_app(Mode::Gate, &be, &out); // backend timeout_ms = 300
+    let (a, _d) = short_timeout_app(Mode::Gate, &be, &out);
     handle_body(&a, "grafana", &grafana("slow", "f1", "firing")).await; // the fake answers after 5 s
     let sent = out.bodies();
     assert_eq!(sent.len(), 1);

@@ -65,7 +65,6 @@ pub fn system_one_from_state() -> Responder {
     })
 }
 
-/// An output that accepts everything.
 pub fn sink() -> Responder {
     Arc::new(|_| (200, "ok".into(), 0))
 }

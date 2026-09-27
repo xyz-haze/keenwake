@@ -5,7 +5,7 @@ use keenwake::history::Facts;
 use keenwake::mapping::{Alert, Status};
 use keenwake::state::sentence;
 
-/// The alert of the spike whose wording `sentence` mirrors.
+/// The alert from the throwaway prototype (the spike) whose wording `sentence` reproduces.
 fn a(env: &str) -> Alert {
     Alert {
         summary: "CPU usage above 90% on etl-runner-2".into(),

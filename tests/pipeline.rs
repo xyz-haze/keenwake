@@ -86,9 +86,8 @@ fn repeated_firing_after_ping_is_repeat_in_gate() {
     assert!(p2.state.contains("for 1 minutes so far"));
 }
 
-/// Fixed-sequence sanity check for the replay property below: firing, firing (repeat), resolved,
-/// firing (fresh episode, pings again). Confirms the harness can actually produce `Kind::Repeat`
-/// and that replaying it from stored events and decisions reproduces the same kinds.
+/// Proves the harness can produce `Kind::Repeat` at all, so the replay property below is not
+/// vacuous: firing, firing (repeat), resolved, firing (new episode, pings again).
 #[test]
 fn replay_reproduces_repeat() {
     let c = cfg(Mode::Gate);
