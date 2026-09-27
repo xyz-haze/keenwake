@@ -30,13 +30,13 @@ flowchart LR
 
 ## How it compares
 
-| | What it does about noise | Decides per alert whether to page |
+| Tool | What it is | Skips pages for alerts that usually fix themselves? |
 |---|---|---|
-| Alertmanager `for:`, grouping, inhibition | Static rules you write and tune | No |
-| PagerDuty Auto-Pause | Holds notifications for alerts that usually auto-resolve | Yes, inside PagerDuty's paid AIOps add-on |
-| Keep, Robusta | Dedup, grouping, enrichment, workflows | No |
-| HolmesGPT | Investigates root cause once an alert has fired | No |
-| **keenwake** | Reads each alert's own history and text | Yes, with the facts it used in every decision; can run fully local |
+| Alertmanager `for:` and inhibition | Fixed rules you write by hand | Only what your rules cover |
+| PagerDuty Auto-Pause | The same idea as keenwake, inside PagerDuty | Yes, in a paid add-on |
+| Keep, Robusta | Group, dedupe and enrich alerts | No |
+| HolmesGPT | Finds the root cause after the page | No, it runs after |
+| **keenwake** | Reads each alert's history and text, then decides | Yes, open source, can run fully local |
 
 ## Numbers
 
