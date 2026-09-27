@@ -14,7 +14,7 @@ pub fn message(kind: &str, a: &Alert, probability: Option<f64>, reason: &str, fa
     if !facts_line.is_empty() { text.push_str(&format!(" - {facts_line}")); }
     json!({
         "text": text,
-        "alertsift": {
+        "keenwake": {
             "decision": kind, "probability": probability, "reason": reason,
             "source": a.source, "identity": a.identity, "status": a.status.as_str(),
             "summary": a.summary, "details": a.details, "env": a.env, "severity": a.severity,

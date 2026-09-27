@@ -1,5 +1,5 @@
-use alertsift::config::{DecisionCfg, Mode, OnError};
-use alertsift::decide::{classify, route, Kind, Target};
+use keenwake::config::{DecisionCfg, Mode, OnError};
+use keenwake::decide::{classify, route, Kind, Target};
 use proptest::prelude::*;
 
 fn cfg(mode: Mode, on_error: OnError) -> DecisionCfg {

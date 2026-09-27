@@ -14,5 +14,5 @@ escalate = "http://sink:9000/escalate"
 digest = "http://sink:9000/digest"
 
 [store]
-path = "/data/alertsift.db"
+path = "/data/keenwake.db"
 undelivered = "/data/undelivered.jsonl"

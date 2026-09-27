@@ -1,12 +1,12 @@
 //! Slow: sends the synthetic corpus to a real backend. Ignored by default; when run with
-//! --ignored it needs ALERTSIFT_CORPUS_URL and ALERTSIFT_CORPUS_MODEL and fails loudly without
+//! --ignored it needs KEENWAKE_CORPUS_URL and KEENWAKE_CORPUS_MODEL and fails loudly without
 //! them, so it never reports a green result it did not compute.
 
-use alertsift::backend::Backend;
-use alertsift::config::{BackendCfg, Question};
-use alertsift::history::Facts;
-use alertsift::mapping::{Alert, Status};
-use alertsift::state::sentence;
+use keenwake::backend::Backend;
+use keenwake::config::{BackendCfg, Question};
+use keenwake::history::Facts;
+use keenwake::mapping::{Alert, Status};
+use keenwake::state::sentence;
 
 fn auc(ps: &[(f64, bool)]) -> f64 {
     let pos: Vec<f64> = ps.iter().filter(|x| x.1).map(|x| x.0).collect();
@@ -26,11 +26,11 @@ fn auc_helper_is_right() {
 #[tokio::test]
 #[ignore = "slow: needs a real backend, run with --ignored"]
 async fn corpus_auc_stays_above_095() {
-    let (Ok(url), Ok(model)) = (std::env::var("ALERTSIFT_CORPUS_URL"), std::env::var("ALERTSIFT_CORPUS_MODEL")) else {
-        eprintln!("SKIPPED: set ALERTSIFT_CORPUS_URL and ALERTSIFT_CORPUS_MODEL");
+    let (Ok(url), Ok(model)) = (std::env::var("KEENWAKE_CORPUS_URL"), std::env::var("KEENWAKE_CORPUS_MODEL")) else {
+        eprintln!("SKIPPED: set KEENWAKE_CORPUS_URL and KEENWAKE_CORPUS_MODEL");
         panic!("slow corpus test was asked for but not configured");
     };
-    let key_env = std::env::var("ALERTSIFT_CORPUS_KEY_ENV").ok();
+    let key_env = std::env::var("KEENWAKE_CORPUS_KEY_ENV").ok();
     let b = Backend::new(&BackendCfg { url, model, api_key_env: key_env, timeout_ms: 30_000 }).unwrap();
     let mut scored = Vec::new();
     for line in std::fs::read_to_string("tests/fixtures/corpus.jsonl").unwrap().lines() {

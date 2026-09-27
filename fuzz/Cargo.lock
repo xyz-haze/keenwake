@@ -24,32 +24,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alertsift"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "regex",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 1.0.69",
- "tokio",
- "toml",
-]
-
-[[package]]
-name = "alertsift-fuzz"
-version = "0.0.0"
-dependencies = [
- "alertsift",
- "libfuzzer-sys",
-]
-
-[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -738,6 +712,32 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "keenwake"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml",
+]
+
+[[package]]
+name = "keenwake-fuzz"
+version = "0.0.0"
+dependencies = [
+ "keenwake",
+ "libfuzzer-sys",
 ]
 
 [[package]]

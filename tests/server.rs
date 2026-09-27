@@ -1,6 +1,6 @@
 mod common;
-use alertsift::config::Config;
-use alertsift::server::{handle_body, App};
+use keenwake::config::Config;
+use keenwake::server::{handle_body, App};
 use common::{system_one_from_state, FakeHttp};
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ undelivered = "{}"
 {extra}
 "#, backend.url, out.url, out.url, out.url, out.url, dir.path().join("u.jsonl").display());
     let cfg = Config::from_toml(&toml).unwrap();
-    (App::new(cfg, alertsift::store::Store::memory(), || 1_800_000_000).unwrap(), dir)
+    (App::new(cfg, keenwake::store::Store::memory(), || 1_800_000_000).unwrap(), dir)
 }
 
 fn grafana(summary: &str, fp: &str, status: &str) -> Vec<u8> {
@@ -44,8 +44,8 @@ async fn gate_pings_high_and_escalates_middle() {
     assert_eq!(handle_body(&a, "grafana", &grafana("p=0.40 cpu", "f2", "firing")).await, 200);
     let sent = out.bodies();
     assert_eq!(sent.len(), 2);
-    assert_eq!(sent[0]["alertsift"]["decision"], "ping");
-    assert_eq!(sent[1]["alertsift"]["decision"], "escalate");
+    assert_eq!(sent[0]["keenwake"]["decision"], "ping");
+    assert_eq!(sent[1]["keenwake"]["decision"], "escalate");
 }
 
 #[tokio::test]
@@ -56,7 +56,7 @@ async fn gate_backend_down_fails_open() {
     handle_body(&a, "grafana", &grafana("fail500", "f1", "firing")).await;
     let sent = out.bodies();
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0]["alertsift"]["decision"], "untriaged");
+    assert_eq!(sent[0]["keenwake"]["decision"], "untriaged");
     assert!(sent[0]["text"].as_str().unwrap().contains("backend"));
 }
 
@@ -67,7 +67,7 @@ async fn observe_sends_only_verdicts() {
     let (a, _d) = app("observe", "ping", &be, &out, "").await;
     handle_body(&a, "grafana", &grafana("p=0.90 disk", "f1", "firing")).await;
     handle_body(&a, "grafana", &grafana("fail500", "f2", "firing")).await;
-    assert!(out.bodies().iter().all(|b| b["alertsift"]["channel"] == "verdict"));
+    assert!(out.bodies().iter().all(|b| b["keenwake"]["channel"] == "verdict"));
 }
 
 #[tokio::test]
@@ -91,7 +91,7 @@ async fn repeat_notification_does_not_ping_twice_and_resolved_follows_ping() {
     handle_body(&a, "grafana", &grafana("p=0.90 disk", "f1", "firing")).await;
     handle_body(&a, "grafana", &grafana("p=0.90 disk", "f1", "firing")).await;
     handle_body(&a, "grafana", &grafana("p=0.90 disk", "f1", "resolved")).await;
-    let kinds: Vec<_> = out.bodies().iter().map(|b| b["alertsift"]["decision"].as_str().unwrap().to_string()).collect();
+    let kinds: Vec<_> = out.bodies().iter().map(|b| b["keenwake"]["decision"].as_str().unwrap().to_string()).collect();
     assert_eq!(kinds, vec!["ping", "resolved"]);
     assert_eq!(be.bodies().len(), 2, "the repeat still asks the backend, the resolved never does");
 }
@@ -104,7 +104,7 @@ async fn repeat_untriaged_does_not_ping_twice_and_resolved_follows() {
     handle_body(&a, "grafana", &grafana("fail500", "f1", "firing")).await;
     handle_body(&a, "grafana", &grafana("fail500", "f1", "firing")).await;
     handle_body(&a, "grafana", &grafana("fail500", "f1", "resolved")).await;
-    let kinds: Vec<_> = out.bodies().iter().map(|b| b["alertsift"]["decision"].as_str().unwrap().to_string()).collect();
+    let kinds: Vec<_> = out.bodies().iter().map(|b| b["keenwake"]["decision"].as_str().unwrap().to_string()).collect();
     assert_eq!(kinds, vec!["untriaged", "resolved"]);
 }
 
@@ -116,9 +116,9 @@ async fn unknown_source_and_garbage() {
     assert_eq!(handle_body(&a, "nope", b"{}").await, 404);
     assert_eq!(handle_body(&a, "grafana", b"not json ops@example.com").await, 200);
     let sent = out.bodies();
-    assert_eq!(sent[0]["alertsift"]["decision"], "untriaged");
+    assert_eq!(sent[0]["keenwake"]["decision"], "untriaged");
     assert!(!sent[0].to_string().contains("ops@example.com"));
-    assert!(a.metrics.render().contains("alertsift_mapping_errors_total{source=\"grafana\"} 1"));
+    assert!(a.metrics.render().contains("keenwake_mapping_errors_total{source=\"grafana\"} 1"));
 }
 
 #[tokio::test]
@@ -130,8 +130,8 @@ async fn http_router_limits_body_size() {
     let out = FakeHttp::start(sink()).await;
     let (a, _d) = app("observe", "ping", &be, &out, "").await;
     let a = Arc::new(a);
-    let (q, _worker) = alertsift::worker::start(a.clone(), alertsift::worker::QUEUE_CAPACITY);
-    let r = alertsift::server::router(a, q);
+    let (q, _worker) = keenwake::worker::start(a.clone(), keenwake::worker::QUEUE_CAPACITY);
+    let r = keenwake::server::router(a, q);
     let big = vec![b'a'; 2 * 1024 * 1024];
     let resp = r.clone().oneshot(Request::post("/hook/grafana").body(Body::from(big)).unwrap()).await.unwrap();
     assert_eq!(resp.status().as_u16(), 413);
@@ -163,10 +163,10 @@ verdict = "{}/verdict"
 undelivered = "{}"
 "#, be.url, out.url, dir.path().join("u.jsonl").display());
     let cfg = Config::from_toml(&toml).unwrap();
-    let a = App::new(cfg, alertsift::store::Store::memory(), || 1_800_000_000).unwrap();
+    let a = App::new(cfg, keenwake::store::Store::memory(), || 1_800_000_000).unwrap();
     let a = Arc::new(a);
-    let (q, _worker) = alertsift::worker::start(a.clone(), alertsift::worker::QUEUE_CAPACITY);
-    let r = alertsift::server::router(a, q);
+    let (q, _worker) = keenwake::worker::start(a.clone(), keenwake::worker::QUEUE_CAPACITY);
+    let r = keenwake::server::router(a, q);
     let body = grafana("slow", "f1", "firing");
     let t = Instant::now();
     let resp = r.oneshot(Request::post("/hook/grafana").body(Body::from(body)).unwrap()).await.unwrap();
@@ -177,11 +177,11 @@ undelivered = "{}"
 
 #[test]
 fn digest_is_due_once_per_day_after_its_time() {
-    use alertsift::digest::due;
+    use keenwake::digest::due;
     let day = 1_790_000_000 - (1_790_000_000 % 86_400); // 00:00 UTC of some day
     assert!(!due("08:00", None, day + 7 * 3600));
     assert!(due("08:00", None, day + 8 * 3600));
-    let today = alertsift::digest::day_key(day + 8 * 3600);
+    let today = keenwake::digest::day_key(day + 8 * 3600);
     assert!(!due("08:00", Some(&today), day + 9 * 3600));
     assert!(due("08:00", Some(&today), day + 86_400 + 8 * 3600));
 }
@@ -194,7 +194,7 @@ async fn gate_backend_timeout_pings_untriaged() {
     handle_body(&a, "grafana", &grafana("slow", "f1", "firing")).await; // the fake answers after 5 s
     let sent = out.bodies();
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0]["alertsift"]["decision"], "untriaged");
+    assert_eq!(sent[0]["keenwake"]["decision"], "untriaged");
     assert!(sent[0]["text"].as_str().unwrap().contains("backend timed out"), "{}", sent[0]["text"]);
 }
 
@@ -206,7 +206,7 @@ async fn gate_backend_quota_429_pings_untriaged() {
     handle_body(&a, "grafana", &grafana("p=0.10 disk", "f1", "firing")).await;
     let sent = out.bodies();
     assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0]["alertsift"]["decision"], "untriaged");
+    assert_eq!(sent[0]["keenwake"]["decision"], "untriaged");
     assert!(sent[0]["text"].as_str().unwrap().contains("HTTP 429"), "{}", sent[0]["text"]);
 }
 
@@ -223,5 +223,5 @@ async fn replay_of_recorded_gate_history_changes_nothing() {
     }
     let stored: Vec<String> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind).collect();
     assert_eq!(stored, vec!["ping", "repeat", "resolved", "ping", "escalate", "digest"]);
-    assert_eq!(alertsift::report::replay(&a, 0).await, vec![]);
+    assert_eq!(keenwake::report::replay(&a, 0).await, vec![]);
 }

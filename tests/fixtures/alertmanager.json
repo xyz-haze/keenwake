@@ -3,7 +3,7 @@
   "groupKey": "{}:{alertname=\"HighErrorRate\"}",
   "truncatedAlerts": 0,
   "status": "firing",
-  "receiver": "alertsift",
+  "receiver": "keenwake",
   "groupLabels": {"alertname": "HighErrorRate"},
   "commonLabels": {"alertname": "HighErrorRate", "env": "prod"},
   "commonAnnotations": {"summary": "5xx above 5% on api-1"},

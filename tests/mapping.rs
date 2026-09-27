@@ -1,4 +1,4 @@
-use alertsift::mapping::{extract, default_identity, Fields, FieldSpec, SourceSpec, Status};
+use keenwake::mapping::{extract, default_identity, Fields, FieldSpec, SourceSpec, Status};
 use std::collections::BTreeMap;
 
 fn p(path: &str) -> FieldSpec { FieldSpec::Path { path: path.into(), map: None } }

@@ -149,7 +149,7 @@ pub struct StoreCfg {
     pub undelivered: String,
 }
 fn d_db() -> String {
-    "alertsift.db".into()
+    "keenwake.db".into()
 }
 fn d_undelivered() -> String {
     "undelivered.jsonl".into()

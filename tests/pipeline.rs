@@ -1,10 +1,10 @@
-use alertsift::backend::request_body;
-use alertsift::config::{Config, Question};
-use alertsift::decide::{Kind, Target};
-use alertsift::mapping::{extract, Alert, Status};
-use alertsift::pipeline::{finish, prepare};
-use alertsift::redact::Redactor;
-use alertsift::store::{DecisionRow, Store};
+use keenwake::backend::request_body;
+use keenwake::config::{Config, Question};
+use keenwake::decide::{Kind, Target};
+use keenwake::mapping::{extract, Alert, Status};
+use keenwake::pipeline::{finish, prepare};
+use keenwake::redact::Redactor;
+use keenwake::store::{DecisionRow, Store};
 use proptest::prelude::*;
 
 const WINDOW: i64 = 24 * 3600;
@@ -84,9 +84,9 @@ fn replay_reproduces_repeat() {
 
     for (seq, kind) in &first {
         let ev = s.events_since(0).into_iter().find(|e| e.seq == *seq).unwrap();
-        let before = s.events_for(&ev.alert.identity, ev.received_at - alertsift::history::WINDOW_SECS, *seq);
-        let f = alertsift::history::facts(&before, &ev.alert, ev.received_at);
-        let pr = alertsift::pipeline::Prepared { event_seq: *seq, alert: ev.alert.clone(), facts: f,
+        let before = s.events_for(&ev.alert.identity, ev.received_at - keenwake::history::WINDOW_SECS, *seq);
+        let f = keenwake::history::facts(&before, &ev.alert, ev.received_at);
+        let pr = keenwake::pipeline::Prepared { event_seq: *seq, alert: ev.alert.clone(), facts: f,
             state: String::new(), already_pinged: s.episode_pinged(&ev.alert.identity, *seq, ev.received_at - WINDOW), needs_model: true };
         assert_eq!(finish(&c, &pr, Ok(p)).kind, *kind);
     }
@@ -134,9 +134,9 @@ proptest! {
         }
         for (seq, kind) in first {
             let ev = s.events_since(0).into_iter().find(|e| e.seq == seq).unwrap();
-            let before = s.events_for(&ev.alert.identity, ev.received_at - alertsift::history::WINDOW_SECS, seq);
-            let f = alertsift::history::facts(&before, &ev.alert, ev.received_at);
-            let pr = alertsift::pipeline::Prepared { event_seq: seq, alert: ev.alert.clone(), facts: f,
+            let before = s.events_for(&ev.alert.identity, ev.received_at - keenwake::history::WINDOW_SECS, seq);
+            let f = keenwake::history::facts(&before, &ev.alert, ev.received_at);
+            let pr = keenwake::pipeline::Prepared { event_seq: seq, alert: ev.alert.clone(), facts: f,
                 state: String::new(), already_pinged: s.episode_pinged(&ev.alert.identity, seq, ev.received_at - WINDOW), needs_model: true };
             let p = ps[(seq - 1) as usize].0;
             prop_assert_eq!(finish(&c, &pr, Ok(p)).kind, kind);

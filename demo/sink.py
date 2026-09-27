@@ -1,4 +1,4 @@
-"""Receives alertsift's outgoing webhooks, prints them and keeps them in out/sink.jsonl."""
+"""Receives keenwake's outgoing webhooks, prints them and keeps them in out/sink.jsonl."""
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 

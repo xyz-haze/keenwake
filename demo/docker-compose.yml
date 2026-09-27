@@ -1,4 +1,4 @@
-name: alertsift-demo
+name: keenwake-demo
 services:
   fakeapp:
     image: python:3.12-slim
@@ -14,9 +14,9 @@ services:
     build: ../sidecar
     volumes: ["laya-models:/models"]
     healthcheck: {test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8771/healthz')"], interval: 10s, retries: 90, start_period: 60s}
-  alertsift:
+  keenwake:
     build: ..
-    volumes: ["./alertsift.toml:/etc/alertsift/alertsift.toml:ro", "alertsift-data:/data"]
+    volumes: ["./keenwake.toml:/etc/keenwake/keenwake.toml:ro", "keenwake-data:/data"]
     depends_on: {laya: {condition: service_healthy}}
   sink:
     image: python:3.12-slim
@@ -26,5 +26,5 @@ services:
     image: python:3.12-slim
     command: python /app/chaos.py
     volumes: ["./chaos.py:/app/chaos.py:ro", "./out:/out"]
-    depends_on: [fakeapp, prometheus, alertmanager, alertsift]
-volumes: {laya-models: {}, alertsift-data: {}}
+    depends_on: [fakeapp, prometheus, alertmanager, keenwake]
+volumes: {laya-models: {}, keenwake-data: {}}

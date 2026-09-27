@@ -1,4 +1,4 @@
-"""Local Laya sidecar exposing the System One route, so alertsift talks to Laya like to Jev.
+"""Local Laya sidecar exposing the System One route, so keenwake talks to Laya like to Jev.
 
 Stdlib HTTP server, one model loaded once, calls serialised by a lock (one forward pass at a time).
 """

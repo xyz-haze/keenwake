@@ -1,10 +1,10 @@
 mod common;
 
-use alertsift::config::Config;
-use alertsift::mapping::{Alert, Status};
-use alertsift::report::{build, parse_since, replay};
-use alertsift::server::App;
-use alertsift::store::{DecisionRow, Store};
+use keenwake::config::Config;
+use keenwake::mapping::{Alert, Status};
+use keenwake::report::{build, parse_since, replay};
+use keenwake::server::App;
+use keenwake::store::{DecisionRow, Store};
 use common::{system_one_from_state, FakeHttp};
 
 fn ev(s: &Store, summary: &str, kind: &str, p: Option<f64>, tokens: i64) {

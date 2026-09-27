@@ -1,5 +1,5 @@
-use alertsift::config::{Config, Mode, OnError};
-use alertsift::mapping::{extract, FieldSpec};
+use keenwake::config::{Config, Mode, OnError};
+use keenwake::mapping::{extract, FieldSpec};
 
 const MIN: &str = r#"
 [backend]

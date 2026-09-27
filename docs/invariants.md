@@ -40,15 +40,15 @@ Rules the code must never break. Each one has a test; the test name is given.
    episodes, so the property cannot fail as the code is written.
 
 6. **Replay.** Same config and same deterministic backend give the same decisions as the ones
-   already stored. The shipped `replay` (the `alertsift replay` command), run on a gate history
+   already stored. The shipped `replay` (the `keenwake replay` command), run on a gate history
    recorded by `serve`, reports no change.
    `tests/server.rs::replay_of_recorded_gate_history_changes_nothing`,
    `tests/pipeline.rs::replay_is_deterministic` (property over the shared pipeline)
 
 ## A known gap these invariants don't cover
 
-alertsift has no way to tell whether an alert resolved on its own or because a human intervened
+keenwake has no way to tell whether an alert resolved on its own or because a human intervened
 — both look like the same `resolved` event. The "resolved on its own X% of the time" figure in
 the sentence sent to the model (see `src/state.rs`) therefore counts every resolution, not just
 the self-healing ones. This is a real limitation of the history signal, not a bug: fixing it
-would need a way to distinguish the two, which no alerting tool alertsift talks to reports today.
+would need a way to distinguish the two, which no alerting tool keenwake talks to reports today.

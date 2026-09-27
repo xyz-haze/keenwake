@@ -1,5 +1,5 @@
 {
-  "receiver": "alertsift",
+  "receiver": "keenwake",
   "status": "firing",
   "orgId": 1,
   "alerts": [

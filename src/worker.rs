@@ -51,8 +51,8 @@ pub async fn process(app: &Arc<App>, source: String, body: Bytes) {
     });
     if let Err(e) = task.await {
         if !e.is_panic() { return; }
-        eprintln!("alertsift: internal error while processing an alert from source {source}");
-        app.metrics.inc("alertsift_internal_errors_total", &[]);
+        eprintln!("keenwake: internal error while processing an alert from source {source}");
+        app.metrics.inc("keenwake_internal_errors_total", &[]);
         let text = format!("[untriaged] internal error while processing an alert from {source}");
         send_untriaged_raw(app, &source, &body, text).await;
     }

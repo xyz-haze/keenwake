@@ -1,6 +1,6 @@
-use alertsift::history::facts;
-use alertsift::mapping::{Alert, Status};
-use alertsift::store::{DecisionRow, Store};
+use keenwake::history::facts;
+use keenwake::mapping::{Alert, Status};
+use keenwake::store::{DecisionRow, Store};
 use proptest::prelude::*;
 
 fn alert(status: Status) -> Alert {

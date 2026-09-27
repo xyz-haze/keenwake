@@ -1,13 +1,13 @@
 //! The webhook queue: one ordered worker, bounded, panic-isolated, drained on shutdown.
 mod common;
-use alertsift::config::Config;
-use alertsift::mapping::{Alert, Status};
-use alertsift::server::{router, App};
-use alertsift::worker::{queue, start, QUEUE_CAPACITY};
+use keenwake::config::Config;
+use keenwake::mapping::{Alert, Status};
+use keenwake::server::{router, App};
+use keenwake::worker::{queue, start, QUEUE_CAPACITY};
 use axum::body::Body;
 use axum::http::Request;
 use tower::ServiceExt;
-use alertsift::store::Store;
+use keenwake::store::Store;
 use common::{system_one_from_state, FakeHttp};
 use std::sync::Arc;
 
@@ -47,7 +47,7 @@ const BOOM_ON_EVENT: &str =
     "CREATE TRIGGER boom BEFORE INSERT ON events WHEN NEW.summary LIKE '%boom%' BEGIN SELECT RAISE(ABORT, 'forced'); END;";
 
 fn kinds(out: &FakeHttp) -> Vec<String> {
-    out.bodies().iter().map(|b| b["alertsift"]["decision"].as_str().unwrap().to_string()).collect()
+    out.bodies().iter().map(|b| b["keenwake"]["decision"].as_str().unwrap().to_string()).collect()
 }
 
 /// A store call that panics (here: a SQL trigger aborting the insert) poisons the store's lock;
@@ -94,8 +94,8 @@ async fn full_queue_replies_503_and_unknown_source_stays_404() {
     assert_eq!(post(&r, "grafana", grafana("p=0.90 b", "f2", "firing")).await, 503);
     assert_eq!(post(&r, "nope", b"{}".to_vec()).await, 404);
     let m = a.metrics.render();
-    assert!(m.contains("alertsift_queue_full_total 1"), "{m}");
-    assert!(m.contains("alertsift_unknown_source_total 1"), "{m}");
+    assert!(m.contains("keenwake_queue_full_total 1"), "{m}");
+    assert!(m.contains("keenwake_unknown_source_total 1"), "{m}");
 }
 
 #[tokio::test]
@@ -113,11 +113,11 @@ async fn panic_while_processing_sends_untriaged_in_gate_and_the_next_webhook_sti
     let sent = out.bodies();
     assert_eq!(kinds(&out), vec!["untriaged", "ping"]);
     assert_eq!(sent[0]["text"], "[untriaged] internal error while processing an alert from grafana");
-    let raw = sent[0]["alertsift"]["raw"].as_str().unwrap();
+    let raw = sent[0]["keenwake"]["raw"].as_str().unwrap();
     assert!(raw.contains("boom p=0.10"), "{raw}");
     assert!(!raw.contains("ops@example.com"), "raw body must be redacted: {raw}");
-    assert_eq!(sent[1]["alertsift"]["identity"], "f2");
-    assert!(a.metrics.render().contains("alertsift_internal_errors_total 1"));
+    assert_eq!(sent[1]["keenwake"]["identity"], "f2");
+    assert!(a.metrics.render().contains("keenwake_internal_errors_total 1"));
 }
 
 #[tokio::test]
@@ -136,9 +136,9 @@ async fn panic_while_processing_in_observe_is_only_counted() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     let sent = out.bodies();
     assert_eq!(sent.len(), 1, "{sent:?}");
-    assert_eq!(sent[0]["alertsift"]["channel"], "verdict");
-    assert_eq!(sent[0]["alertsift"]["identity"], "f2");
-    assert!(a.metrics.render().contains("alertsift_internal_errors_total 1"));
+    assert_eq!(sent[0]["keenwake"]["channel"], "verdict");
+    assert_eq!(sent[0]["keenwake"]["identity"], "f2");
+    assert!(a.metrics.render().contains("keenwake_internal_errors_total 1"));
 }
 
 #[tokio::test]
@@ -166,7 +166,7 @@ async fn digest_tick_panic_is_contained() {
     s.queue_digest(s.insert_event(&alert, 1_800_000_000));
     let a = Arc::new(App::new(Config::from_toml(&gate_toml(&be, &out, &dir)).unwrap(), s, || 1_800_000_000).unwrap());
     let day = 1_800_000_000 - 1_800_000_000 % 86_400;
-    assert!(!alertsift::digest::guarded_tick(&a, day + 9 * 3600).await);
-    assert!(a.metrics.render().contains("alertsift_internal_errors_total 1"));
+    assert!(!keenwake::digest::guarded_tick(&a, day + 9 * 3600).await);
+    assert!(a.metrics.render().contains("keenwake_internal_errors_total 1"));
     assert!(a.store.meta_get("digest_last_day").is_some(), "the store still answers after the panic");
 }

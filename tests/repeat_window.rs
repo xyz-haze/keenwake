@@ -1,7 +1,7 @@
 //! Repeat suppression is bounded in time: a lost `resolved` must not silence an identity forever.
 mod common;
-use alertsift::config::Config;
-use alertsift::server::{handle_body, App};
+use keenwake::config::Config;
+use keenwake::server::{handle_body, App};
 use common::{system_one_from_state, FakeHttp};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
@@ -24,11 +24,11 @@ fn grafana(summary: &str, fp: &str, status: &str) -> Vec<u8> {
 async fn gate_app(be: &FakeHttp, out: &FakeHttp, dir: &tempfile::TempDir, clock: fn() -> i64) -> App {
     let toml = format!("[backend]\nurl='{}'\nmodel='m-1'\n[decision]\nmode='gate'\n[outputs]\nping='{}/ping'\nescalate='{}/e'\ndigest='{}/d'\n[store]\nundelivered='{}'\n",
         be.url, out.url, out.url, out.url, dir.path().join("u").display());
-    App::new(Config::from_toml(&toml).unwrap(), alertsift::store::Store::memory(), clock).unwrap()
+    App::new(Config::from_toml(&toml).unwrap(), keenwake::store::Store::memory(), clock).unwrap()
 }
 
 fn sent_kinds(out: &FakeHttp) -> Vec<String> {
-    out.bodies().iter().map(|b| b["alertsift"]["decision"].as_str().unwrap().to_string()).collect()
+    out.bodies().iter().map(|b| b["keenwake"]["decision"].as_str().unwrap().to_string()).collect()
 }
 
 #[tokio::test]

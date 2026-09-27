@@ -1,11 +1,11 @@
 route:
-  receiver: alertsift
+  receiver: keenwake
   group_by: [alertname, instance]
   group_wait: 1s
   group_interval: 5s
   repeat_interval: 1m
 receivers:
-  - name: alertsift
+  - name: keenwake
     webhook_configs:
-      - url: http://alertsift:8080/hook/alertmanager
+      - url: http://keenwake:8080/hook/alertmanager
         send_resolved: true

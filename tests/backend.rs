@@ -1,6 +1,6 @@
 mod common;
-use alertsift::backend::{request_body, Backend, BackendError};
-use alertsift::config::{BackendCfg, Question};
+use keenwake::backend::{request_body, Backend, BackendError};
+use keenwake::config::{BackendCfg, Question};
 use common::{system_one_from_state, FakeHttp};
 
 fn cfg(url: &str) -> BackendCfg {

@@ -6,10 +6,10 @@ COPY presets presets
 RUN cargo build --release
 
 FROM debian:bookworm-slim
-RUN useradd -r -u 10001 alertsift && mkdir /data && chown alertsift /data
-COPY --from=build /src/target/release/alertsift /usr/local/bin/alertsift
-USER alertsift
+RUN useradd -r -u 10001 keenwake && mkdir /data && chown keenwake /data
+COPY --from=build /src/target/release/keenwake /usr/local/bin/keenwake
+USER keenwake
 WORKDIR /data
 EXPOSE 8080
-ENTRYPOINT ["alertsift"]
-CMD ["--config", "/etc/alertsift/alertsift.toml", "serve"]
+ENTRYPOINT ["keenwake"]
+CMD ["--config", "/etc/keenwake/keenwake.toml", "serve"]

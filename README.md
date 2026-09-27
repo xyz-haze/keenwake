@@ -1,17 +1,17 @@
-# alertsift
+# keenwake
 
 Decide which alerts deserve to wake a human, and prove it with numbers.
 
 ## How it works
 
 1. Your alerting tool posts a webhook to `/hook/{source}`. `/hook` has no authentication in V1:
-   keep alertsift on an internal network. `{source}` is either a built-in preset
-   (`grafana`, `alertmanager`) or a `[source.name]` section in your `alertsift.toml`. An
+   keep keenwake on an internal network. `{source}` is either a built-in preset
+   (`grafana`, `alertmanager`) or a `[source.name]` section in your `keenwake.toml`. An
    unrecognised source gets a `404` and is counted in `/metrics`.
 2. The handler queues the body and replies `200` immediately — a slow backend never makes the
    source wait. One worker decides queued bodies one at a time, in arrival order, so a firing is
    fully decided before its `resolved` is looked at. If the queue (10 000 bodies) is full, the
-   handler replies `503` so the source retries later. On SIGINT or SIGTERM, alertsift stops
+   handler replies `503` so the source retries later. On SIGINT or SIGTERM, keenwake stops
    accepting webhooks and gives the worker up to 8 seconds to finish the queue.
 3. The mapping extracts a fixed set of fields from the payload — `status`, `identity`, `summary`,
    `details`, `env`, `severity` — using five primitives (`path`, `first_of`, `map`, `const`,
@@ -21,7 +21,7 @@ Decide which alerts deserve to wake a human, and prove it with numbers.
    is stored or sent anywhere. `identity`, `env` and `severity` are stored and sent as received.
 5. The event goes into SQLite. If the alert is `resolved`, its episode is closed and no model is
    called — ever.
-6. Otherwise, alertsift computes facts about this identity's last 7 days from stored events: how
+6. Otherwise, keenwake computes facts about this identity's last 7 days from stored events: how
    many times it fired, what fraction resolved on its own, the median time to resolve, how long
    the current episode has run.
 7. Those facts, in plain English, go ahead of the alert text in one sentence sent to the backend.
@@ -32,7 +32,7 @@ Decide which alerts deserve to wake a human, and prove it with numbers.
    > time it looks like its usual pattern so far. Alert: CPU above 90% on etl-2. CPU at 92% for
    > 2m. Severity label: critical.
 
-   alertsift cannot tell a self-resolution from a human fix — both look like the same `resolved`
+   keenwake cannot tell a self-resolution from a human fix — both look like the same `resolved`
    event — so that "resolved on its own" percentage counts every resolution.
 
 8. The backend (Jev or Laya — same API either way) answers one question, `page_now`: a
@@ -45,18 +45,18 @@ Decide which alerts deserve to wake a human, and prove it with numbers.
 ## Two modes
 
 Observe is the default and the recommended way to start: zero risk, since your alerting tool
-keeps sending alerts wherever it already sends them, and alertsift just gets a copy.
+keeps sending alerts wherever it already sends them, and keenwake just gets a copy.
 
 ```
 observe:  your alerting tool ─┬─→ your usual destination   (unchanged)
-                               └─→ alertsift                (decides, records, sends nothing)
+                               └─→ keenwake                (decides, records, sends nothing)
 
-gate:     your alerting tool ──→ alertsift ──→ webhooks     (only what deserves a ping)
+gate:     your alerting tool ──→ keenwake ──→ webhooks     (only what deserves a ping)
 ```
 
 In `observe`, an optional `outputs.verdict` webhook receives every verdict ("probably noise,
 0.12") if you want to watch it work live. In `gate`, the same decision is followed by an actual
-send. The intended path is: run `observe` for a week or two, read `alertsift report`, then switch
+send. The intended path is: run `observe` for a week or two, read `keenwake report`, then switch
 to `gate`.
 
 ## Quick start
@@ -67,7 +67,7 @@ cd demo
 ```
 
 This builds and runs the full demo stack — Prometheus, Alertmanager, three services that flake on
-purpose, a chaos script that injects real incidents and background noise, alertsift running
+purpose, a chaos script that injects real incidents and background noise, keenwake running
 against the local Laya backend, and a `sink` that logs every outgoing webhook — waits for the
 chaos script to finish, then checks that every injected real incident got a `ping`. The exit code
 is the verdict. First run downloads the Laya checkpoint from Hugging Face; expect about 10 minutes
@@ -80,7 +80,7 @@ cd demo
 docker compose up
 ```
 
-and follow the `sink` container's logs — every webhook alertsift sends out is printed there.
+and follow the `sink` container's logs — every webhook keenwake sends out is printed there.
 
 ## Configuration
 
@@ -118,7 +118,7 @@ env = { const = "prod" }
 ```
 
 In `gate` mode, `outputs.ping`, `outputs.escalate` and `outputs.digest` are all required —
-alertsift refuses to start otherwise. `model` must pin a version; a value containing `"latest"`
+keenwake refuses to start otherwise. `model` must pin a version; a value containing `"latest"`
 is refused too.
 
 ## Backends
@@ -131,7 +131,7 @@ Both speak the same `POST {url}/v1/systemone` API, so switching is a change of `
 nothing else. Thresholds are not portable between backends, though: in the corpus below, Laya's
 scores sat in a narrower band (roughly 0.40-0.68) than Jev's, so a `ping`/`digest` pair tuned for
 one backend is not guaranteed to make sense for the other. After changing backend, model or
-thresholds, run `alertsift replay --since 7d` to see which past decisions would change before you
+thresholds, run `keenwake replay --since 7d` to see which past decisions would change before you
 trust the new numbers.
 
 ## Numbers
@@ -141,7 +141,7 @@ trust the new numbers.
 224 alerts, written by an LLM from 16 templates, run through the real sentence builder and the
 real backend; the history facts (episode counts, resolved fraction, median duration) are the
 corpus's own precomputed, synthetic fields, not recomputed from a simulated event history.
-Resolved alerts are skipped, since alertsift never sends them to a model.
+Resolved alerts are skipped, since keenwake never sends them to a model.
 
 - **Laya** (`typed-decisions`, via the sidecar, on a local RTX 3080): **AUC 0.987 over 210 firing
   alerts** (`tests/corpus.rs`, run with `--ignored`).
@@ -150,7 +150,7 @@ Resolved alerts are skipped, since alertsift never sends them to a model.
 
 For 5 of the 210 alerts, the resolved-percentage figure baked into the sentence differs slightly
 from the source data, due to rounding. That percentage, here and in production, counts every
-resolution alertsift sees — self-healed or human-fixed alike, since it has no way to tell them
+resolution keenwake sees — self-healed or human-fixed alike, since it has no way to tell them
 apart.
 
 ### Demo (measured — `demo/e2e.sh`, Laya on CPU in Docker, gate mode, one run)
@@ -161,7 +161,7 @@ apart.
   model only had a few minutes of history to learn "this one usually clears itself" from.
 - Total run time: about 10 minutes (592 s), including model load.
 - The demo runs Laya only; Jev was measured on the corpus above. Jev's cost per alert through
-  alertsift is not measured yet (the backend reports input tokens; `alertsift report` sums them).
+  keenwake is not measured yet (the backend reports input tokens; `keenwake report` sums them).
 
 ### Fuzzing
 
@@ -175,11 +175,11 @@ mode, a failure never changes what the team sees — it is only recorded and cou
 | Failure | In gate mode |
 |---|---|
 | Backend times out, errors, or hits a quota | If `on_error = "ping"` (default): pings, decision kind `untriaged`, reason `"not triaged: backend unavailable (...)"`. If `on_error = "drop"`: nothing is sent, but the decision is still recorded as `untriaged`. |
-| Payload unreadable, or `status` missing or unrecognised | Always pings — regardless of `on_error` — with the redacted raw body (first 4000 characters) and text `"[untriaged] unreadable alert from {source}: {error}"`. The mapping error is also logged to stderr and counted in `alertsift_mapping_errors_total`. |
-| An output webhook fails | 3 attempts with backoff, then a line in `undelivered.jsonl` plus the `alertsift_undelivered_total` metric. |
-| SQLite fails, or processing an alert panics for any other reason | Store operations still panic rather than degrade to "decide without history". The panic is contained to that webhook body: in gate it pings the redacted raw body (first 4000 characters) as `untriaged` with text `"[untriaged] internal error while processing an alert from {source}"`; in observe it is only counted. Either way `alertsift_internal_errors_total` goes up, the error is logged to stderr without the body, and the next webhook is processed normally. A panic while sending the daily digest is logged and counted; the digest loop keeps running. |
-| The webhook queue is full | The source gets `503` and should retry; counted in `alertsift_queue_full_total`. |
-| alertsift itself is down | The source stops getting `200`s. Point a direct fallback contact (e.g. a Slack or PagerDuty webhook) at your alerting tool for this case — alertsift does not provide one. |
+| Payload unreadable, or `status` missing or unrecognised | Always pings — regardless of `on_error` — with the redacted raw body (first 4000 characters) and text `"[untriaged] unreadable alert from {source}: {error}"`. The mapping error is also logged to stderr and counted in `keenwake_mapping_errors_total`. |
+| An output webhook fails | 3 attempts with backoff, then a line in `undelivered.jsonl` plus the `keenwake_undelivered_total` metric. |
+| SQLite fails, or processing an alert panics for any other reason | Store operations still panic rather than degrade to "decide without history". The panic is contained to that webhook body: in gate it pings the redacted raw body (first 4000 characters) as `untriaged` with text `"[untriaged] internal error while processing an alert from {source}"`; in observe it is only counted. Either way `keenwake_internal_errors_total` goes up, the error is logged to stderr without the body, and the next webhook is processed normally. A panic while sending the daily digest is logged and counted; the digest loop keeps running. |
+| The webhook queue is full | The source gets `503` and should retry; counted in `keenwake_queue_full_total`. |
+| keenwake itself is down | The source stops getting `200`s. Point a direct fallback contact (e.g. a Slack or PagerDuty webhook) at your alerting tool for this case — keenwake does not provide one. |
 
 Repeated notifications of an already-pinged episode — including an untriaged ping while the
 backend is down — do not ping again in gate mode for `decision.repeat_window_hours` (default 24)
@@ -192,7 +192,7 @@ liveness check.
 ## Adding a source
 
 See `docs/add-a-source.md`: save a real payload, write a handful of lines of TOML with the five
-mapping primitives, check it with `check-source` before pointing your tool at alertsift. A Claude
+mapping primitives, check it with `check-source` before pointing your tool at keenwake. A Claude
 Code skill that does this end to end lives in `.claude/skills/add-source/`.
 
 ## Invariants

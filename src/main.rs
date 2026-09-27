@@ -1,14 +1,14 @@
-use alertsift::config::Config;
-use alertsift::server::{now_utc, router, App};
-use alertsift::store::Store;
+use keenwake::config::Config;
+use keenwake::server::{now_utc, router, App};
+use keenwake::store::Store;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Parser)]
-#[command(name = "alertsift", version, about = "Decide which alerts deserve to wake a human.")]
+#[command(name = "keenwake", version, about = "Decide which alerts deserve to wake a human.")]
 struct Cli {
-    #[arg(long, short, default_value = "alertsift.toml", global = true)]
+    #[arg(long, short, default_value = "keenwake.toml", global = true)]
     config: PathBuf,
     #[command(subcommand)]
     cmd: Cmd,
@@ -64,12 +64,12 @@ async fn main() -> anyhow::Result<()> {
     match cli.cmd {
         Cmd::CheckSource { source, payload } => {
             let spec = cfg.sources.get(&source).ok_or_else(|| anyhow::anyhow!("unknown source {source}"))?;
-            let alerts = alertsift::mapping::extract(&source, spec, &std::fs::read(payload)?)?;
-            let redactor = alertsift::redact::Redactor::new(&cfg.redact.patterns);
+            let alerts = keenwake::mapping::extract(&source, spec, &std::fs::read(payload)?)?;
+            let redactor = keenwake::redact::Redactor::new(&cfg.redact.patterns);
             let store = Store::memory();
             for a in alerts {
                 println!("{a:#?}");
-                let p = alertsift::pipeline::prepare(&store, &redactor, a, now_utc(), cfg.decision.repeat_window_secs());
+                let p = keenwake::pipeline::prepare(&store, &redactor, a, now_utc(), cfg.decision.repeat_window_secs());
                 println!("state sent to the model:\n  {}\n", p.state);
             }
         }
@@ -80,25 +80,25 @@ async fn main() -> anyhow::Result<()> {
             let digest_app = app.clone();
             tokio::spawn(async move {
                 loop {
-                    alertsift::digest::guarded_tick(&digest_app, now_utc()).await;
+                    keenwake::digest::guarded_tick(&digest_app, now_utc()).await;
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 }
             });
-            let (queue, worker) = alertsift::worker::start(app.clone(), alertsift::worker::QUEUE_CAPACITY);
+            let (queue, worker) = keenwake::worker::start(app.clone(), keenwake::worker::QUEUE_CAPACITY);
             let listener = tokio::net::TcpListener::bind(&listen).await?;
-            eprintln!("alertsift listening on {listen}, mode {:?}", app.cfg.decision.mode);
+            eprintln!("keenwake listening on {listen}, mode {:?}", app.cfg.decision.mode);
             // On a stop signal, serve stops accepting and returns once open requests are answered;
             // the router, and with it the last queue sender, is then dropped. The worker decides
             // what was already accepted (at most DRAIN), then the process exits: anything still
             // queued after that is lost, and the source got a 200 for it.
             axum::serve(listener, router(app, queue)).with_graceful_shutdown(shutdown_signal()).await?;
             if tokio::time::timeout(DRAIN, worker).await.is_err() {
-                eprintln!("alertsift: queue not drained within {DRAIN:?}, exiting anyway");
+                eprintln!("keenwake: queue not drained within {DRAIN:?}, exiting anyway");
             }
         }
         Cmd::Report { since, json } => {
             let store = Store::open(&cfg.store.path)?;
-            let r = alertsift::report::build(&store, now_utc() - alertsift::report::parse_since(&since)?, alertsift::report::JEV_USD_PER_MTOK,
+            let r = keenwake::report::build(&store, now_utc() - keenwake::report::parse_since(&since)?, keenwake::report::JEV_USD_PER_MTOK,
                 cfg.decision.repeat_window_secs());
             if json {
                 println!("{}", serde_json::to_string_pretty(&r)?);
@@ -109,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Replay { since } => {
             let store = Store::open(&cfg.store.path)?;
             let app = App::new(cfg, store, now_utc)?;
-            let changed = alertsift::report::replay(&app, now_utc() - alertsift::report::parse_since(&since)?).await;
+            let changed = keenwake::report::replay(&app, now_utc() - keenwake::report::parse_since(&since)?).await;
             if changed.is_empty() { println!("no decision changes"); }
             for (seq, summary, old, new) in changed { println!("#{seq} {old} -> {new}  {summary}"); }
         }

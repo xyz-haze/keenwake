@@ -52,19 +52,19 @@ impl App {
 
     pub(crate) async fn send(&self, t: Target, mut body: serde_json::Value) -> bool {
         let Some(url) = self.url(t) else { return false };
-        body["alertsift"]["channel"] = serde_json::json!(match t { Target::Verdict => "verdict", _ => "team" });
+        body["keenwake"]["channel"] = serde_json::json!(match t { Target::Verdict => "verdict", _ => "team" });
         let ok = self.sender.post(url, &body).await;
-        if !ok { self.metrics.inc("alertsift_undelivered_total", &[]); }
+        if !ok { self.metrics.inc("keenwake_undelivered_total", &[]); }
         ok
     }
 }
 
 /// Gate only: sends the redacted raw body (first 4000 characters) to `outputs.ping` as
-/// `untriaged`, for an alert alertsift could not decide on its own.
+/// `untriaged`, for an alert keenwake could not decide on its own.
 pub(crate) async fn send_untriaged_raw(app: &App, source: &str, body: &[u8], text: String) {
     if app.cfg.decision.mode != Mode::Gate { return; }
     let raw: String = app.redactor.clean(&String::from_utf8_lossy(body)).chars().take(4000).collect();
-    let msg = serde_json::json!({"text": text, "alertsift": {"decision": "untriaged", "source": source, "raw": raw}});
+    let msg = serde_json::json!({"text": text, "keenwake": {"decision": "untriaged", "source": source, "raw": raw}});
     app.send(Target::Ping, msg).await;
 }
 
@@ -72,20 +72,20 @@ fn mode_str(m: Mode) -> &'static str { match m { Mode::Observe => "observe", Mod
 
 pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
     let Some(spec) = app.cfg.sources.get(source) else {
-        app.metrics.inc("alertsift_unknown_source_total", &[]);
+        app.metrics.inc("keenwake_unknown_source_total", &[]);
         return 404;
     };
     let alerts = match extract(source, spec, body) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("alertsift: mapping error from source {source}: {e}");
-            app.metrics.inc("alertsift_mapping_errors_total", &[("source", source)]);
+            eprintln!("keenwake: mapping error from source {source}: {e}");
+            app.metrics.inc("keenwake_mapping_errors_total", &[("source", source)]);
             send_untriaged_raw(app, source, body, format!("[untriaged] unreadable alert from {source}: {e}")).await;
             return 200;
         }
     };
     for alert in alerts {
-        app.metrics.inc("alertsift_alerts_total", &[("source", source)]);
+        app.metrics.inc("keenwake_alerts_total", &[("source", source)]);
         let now = (app.clock)();
         let p = prepare(&app.store, &app.redactor, alert, now, app.cfg.decision.repeat_window_secs());
         let mode = mode_str(app.cfg.decision.mode).to_string();
@@ -98,15 +98,15 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
             continue;
         }
         let (outcome, ms, tokens, reason) = match app.backend.ask(&p.state, &app.cfg.question).await {
-            Ok(a) => { app.metrics.observe_ms("alertsift_backend", a.ms); (Ok(a.probability), Some(a.ms), a.input_tokens, String::new()) }
+            Ok(a) => { app.metrics.observe_ms("keenwake_backend", a.ms); (Ok(a.probability), Some(a.ms), a.input_tokens, String::new()) }
             Err(e) => {
-                app.metrics.inc("alertsift_backend_errors_total", &[]);
+                app.metrics.inc("keenwake_backend_errors_total", &[]);
                 (Err(e.to_string()), None, None, format!("not triaged: backend unavailable ({e})"))
             }
         };
         let prob = outcome.as_ref().ok().copied();
         let r = finish(&app.cfg, &p, outcome);
-        app.metrics.inc("alertsift_decisions_total", &[("kind", r.kind.as_str())]);
+        app.metrics.inc("keenwake_decisions_total", &[("kind", r.kind.as_str())]);
         let delivered = match r.target {
             Target::DigestQueue => { app.store.queue_digest(p.event_seq); false }
             Target::Nothing => false,
@@ -127,13 +127,13 @@ struct Http { app: Arc<App>, queue: Queue }
 /// are checked synchronously (404); a full queue replies 503 so the source retries later.
 async fn hook(State(h): State<Http>, Path(source): Path<String>, body: Bytes) -> StatusCode {
     if !h.app.cfg.sources.contains_key(&source) {
-        h.app.metrics.inc("alertsift_unknown_source_total", &[]);
+        h.app.metrics.inc("keenwake_unknown_source_total", &[]);
         return StatusCode::NOT_FOUND;
     }
     if h.queue.try_push(source, body) {
         StatusCode::OK
     } else {
-        h.app.metrics.inc("alertsift_queue_full_total", &[]);
+        h.app.metrics.inc("keenwake_queue_full_total", &[]);
         StatusCode::SERVICE_UNAVAILABLE
     }
 }

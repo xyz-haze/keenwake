@@ -1,6 +1,6 @@
-use alertsift::history::Facts;
-use alertsift::mapping::{Alert, Status};
-use alertsift::state::sentence;
+use keenwake::history::Facts;
+use keenwake::mapping::{Alert, Status};
+use keenwake::state::sentence;
 
 fn a(env: &str) -> Alert {
     Alert { source: "s".into(), status: Status::Firing, identity: "i".into(),

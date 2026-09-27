@@ -9,7 +9,7 @@ format, even if that tool has hundreds of different alert rules behind it.
    field names out of a vendor's docs — what a tool actually sends can differ from what it
    documents. Capture one.
 
-2. Add a section to your `alertsift.toml`. Example: a small shell health-check script that posts
+2. Add a section to your `keenwake.toml`. Example: a small shell health-check script that posts
    `{"check": "backup", "state": "KO"|"OK", "line": "..."}` for each check it runs.
 
    ```toml
@@ -25,13 +25,13 @@ format, even if that tool has hundreds of different alert rules behind it.
 3. Check it without sending anything, and without calling a model:
 
    ```
-   alertsift check-source --source healthcheck payload.json
+   keenwake check-source --source healthcheck payload.json
    ```
 
-   This prints the `Alert` alertsift extracted from your payload and the exact sentence it would
+   This prints the `Alert` keenwake extracted from your payload and the exact sentence it would
    send to the backend, so you can see the mapping worked before wiring anything up for real.
 
-4. Point your tool at `http://alertsift:8080/hook/healthcheck`.
+4. Point your tool at `http://keenwake:8080/hook/healthcheck`.
 
 ## The five primitives
 
@@ -43,7 +43,7 @@ format, even if that tool has hundreds of different alert rules behind it.
   (a nested field is `{labels/environment}` or `{/labels/environment}`).
 
 There are no conditions and no calculations, on purpose. A format that needs logic goes through a
-small script placed in front of alertsift, not a language embedded in the TOML. If a tool's
+small script placed in front of keenwake, not a language embedded in the TOML. If a tool's
 `status` can't be expressed as `path` + `map`, that's the sign it needs a script in front rather
 than a source section.
 
@@ -55,7 +55,7 @@ alert); a missing `env` falls back to `"unknown"`.
 
 ## Ship a preset for everyone
 
-A preset ships inside the alertsift binary, so anyone using that tool gets it without writing any
+A preset ships inside the keenwake binary, so anyone using that tool gets it without writing any
 TOML:
 
 1. Add `presets/<tool>.toml` — the same `alerts` + `[fields]` shape as above, without the

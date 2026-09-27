@@ -22,12 +22,12 @@ pub async fn tick(app: &App, now: i64) -> bool {
     let lines: Vec<String> = events.iter().map(|e| format!("- {} ({})", e.alert.summary, e.alert.env)).collect();
     let body = json!({
         "text": format!("[digest] {} alerts that did not need a ping:\n{}", events.len(), lines.join("\n")),
-        "alertsift": {"decision": "digest", "alerts": events.iter().map(|e| json!({
+        "keenwake": {"decision": "digest", "alerts": events.iter().map(|e| json!({
             "identity": e.alert.identity, "summary": e.alert.summary, "env": e.alert.env, "severity": e.alert.severity,
             "received_at": e.received_at})).collect::<Vec<_>>()},
     });
     let ok = app.sender.post(url, &body).await;
-    if !ok { app.metrics.inc("alertsift_undelivered_total", &[]); }
+    if !ok { app.metrics.inc("keenwake_undelivered_total", &[]); }
     ok
 }
 
@@ -38,8 +38,8 @@ pub async fn guarded_tick(app: &Arc<App>, now: i64) -> bool {
     match tokio::spawn(async move { tick(&a, now).await }).await {
         Ok(sent) => sent,
         Err(_) => {
-            eprintln!("alertsift: internal error while sending the digest");
-            app.metrics.inc("alertsift_internal_errors_total", &[]);
+            eprintln!("keenwake: internal error while sending the digest");
+            app.metrics.inc("keenwake_internal_errors_total", &[]);
             false
         }
     }

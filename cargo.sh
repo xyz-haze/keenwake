@@ -4,9 +4,9 @@
 # CARGO_HOME lives in the mounted dir because a named volume is born root.
 set -euo pipefail
 cd "$(dirname "$0")"
-# Forward ALERTSIFT_* and TYPESAFE_API_KEY by name only: values never appear in the command line.
+# Forward KEENWAKE_* and TYPESAFE_API_KEY by name only: values never appear in the command line.
 envs=()
-while IFS='=' read -r k _; do envs+=(-e "$k"); done < <(env | grep -E '^(ALERTSIFT_[A-Z_]+|TYPESAFE_API_KEY)=' || true)
+while IFS='=' read -r k _; do envs+=(-e "$k"); done < <(env | grep -E '^(KEENWAKE_[A-Z_]+|TYPESAFE_API_KEY)=' || true)
 exec docker run --rm \
   -u "$(id -u):$(id -g)" \
   -e CARGO_HOME=/w/.cargo-cache \

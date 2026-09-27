@@ -2,7 +2,7 @@
 # End to end: run the demo, wait for chaos to finish, then require that every injected real
 # incident got a ping. Exit code is the verdict.
 #
-# Runs entirely inside the "alertsift-demo" compose project (see the `name:` key in
+# Runs entirely inside the "keenwake-demo" compose project (see the `name:` key in
 # docker-compose.yml) so it never touches any other container on this machine. No host ports
 # are published: everything talks over the compose network.
 set -euo pipefail
@@ -10,13 +10,13 @@ cd "$(dirname "$0")"
 mkdir -p out
 rm -f out/truth.jsonl out/sink.jsonl out/report.json out/compose.log
 
-# Torn down on every exit path (success, failure, Ctrl-C), so no alertsift-demo container is ever
+# Torn down on every exit path (success, failure, Ctrl-C), so no keenwake-demo container is ever
 # left running. The Laya model volume is kept across runs (its first download is slow, see the
-# sidecar Dockerfile); only the alertsift store is dropped, so each run starts from a clean history.
+# sidecar Dockerfile); only the keenwake store is dropped, so each run starts from a clean history.
 cleanup() {
   docker compose logs --no-color > out/compose.log 2>&1 || true
   docker compose down --remove-orphans || true
-  docker volume rm -f alertsift-demo_alertsift-data >/dev/null 2>&1 || true
+  docker volume rm -f keenwake-demo_keenwake-data >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -29,11 +29,11 @@ for _ in $(seq 1 220); do
 done
 docker compose logs chaos | grep -q "chaos done" || { echo "chaos never finished"; exit 1; }
 
-# alertsift replies 200 before triaging (background processing): give the last decision and its
+# keenwake replies 200 before triaging (background processing): give the last decision and its
 # webhook a moment to land before reading the report.
 sleep 15
 
-docker compose exec -T alertsift alertsift --config /etc/alertsift/alertsift.toml report --since 1h --json > out/report.json
+docker compose exec -T keenwake keenwake --config /etc/keenwake/keenwake.toml report --since 1h --json > out/report.json
 
 python3 - <<'EOF'
 import json, sys

@@ -1,4 +1,4 @@
-//! alertsift: decide which alerts deserve to wake a human.
+//! keenwake: decide which alerts deserve to wake a human.
 
 pub mod backend;
 pub mod config;
