@@ -1,6 +1,7 @@
-# keenwake
-
-**Pages you only for alerts that don't usually fix themselves.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/hero-dark.svg">
+  <img alt="keenwake: pages you only for alerts that don't usually fix themselves. In one demo run, 9 pages without keenwake, 3 with it, both real incidents paged." src="docs/img/hero-light.svg">
+</picture>
 
 keenwake sits next to Grafana or Alertmanager. For each alert it looks at the last 7 days of that
 same alert, asks a small model whether a human should be woken up now, and answers `ping`,
@@ -22,13 +23,9 @@ has lasted much longer than usual") and so does the answer.
 
 ```mermaid
 flowchart LR
-    A[Grafana / Alertmanager] -->|webhook| K[keenwake]
-    K --> H[(7-day history<br/>SQLite)]
-    H --> K
-    K -->|facts + alert text| M[model<br/>hosted Jev or local Laya]
-    M -->|p page_now| K
-    K -->|observe: record only| R[report / replay]
-    K -->|gate| O[ping / escalate / digest webhooks]
+    A[Grafana or Alertmanager] -->|webhook| K[keenwake<br/>+ 7-day history]
+    K -->|facts + alert text| M[model<br/>Jev or local Laya]
+    M -->|probability| D[ping / escalate / digest]
 ```
 
 ## How it compares
@@ -70,7 +67,7 @@ flaps, a full disk on staging) then two real incidents (a 5xx spike, a CPU that 
 
 | Backend | Real incidents paged | Noise paged | Noise held for the digest | Backend cost |
 |---|---|---|---|---|
-| Jev | 2 of 2 | 1 | 7 | $0.0004 for 21 calls |
+| Jev | 2 of 2 | 1 | 6 | $0.0004 for 21 calls |
 | Laya, on CPU | 2 of 2 | 7 | 0 | none, local |
 
 With Jev, the one noisy page is the very first CPU flap: no history yet, so it pages, as it
