@@ -18,14 +18,15 @@ pub struct Prepared {
     pub needs_model: bool,
 }
 
-pub fn prepare(store: &Store, redactor: &Redactor, mut alert: Alert, now: i64) -> Prepared {
+/// `repeat_window` (seconds): how far back a delivered ping still counts as "already pinged".
+pub fn prepare(store: &Store, redactor: &Redactor, mut alert: Alert, now: i64, repeat_window: i64) -> Prepared {
     alert.summary = redactor.clean(&alert.summary);
     alert.details = redactor.clean(&alert.details);
     let event_seq = store.insert_event(&alert, now);
     let before = store.events_for(&alert.identity, now - WINDOW_SECS, event_seq);
     let f = facts(&before, &alert, now);
     let state = sentence(&alert, &f);
-    let already_pinged = store.episode_pinged(&alert.identity, event_seq);
+    let already_pinged = store.episode_pinged(&alert.identity, event_seq, now.saturating_sub(repeat_window));
     let needs_model = alert.status == Status::Firing;
     Prepared { event_seq, alert, facts: f, state, already_pinged, needs_model }
 }

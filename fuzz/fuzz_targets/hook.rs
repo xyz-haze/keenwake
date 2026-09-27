@@ -10,7 +10,7 @@ fuzz_target!(|data: &[u8]| {
     for (name, spec) in &cfg.sources {
         if let Ok(alerts) = alertsift::mapping::extract(name, spec, data) {
             let store = alertsift::store::Store::memory();
-            for a in alerts { let _ = alertsift::pipeline::prepare(&store, &red, a, 1_800_000_000); }
+            for a in alerts { let _ = alertsift::pipeline::prepare(&store, &red, a, 1_800_000_000, cfg.decision.repeat_window_secs()); }
         }
     }
 });

@@ -41,7 +41,7 @@ fn report_counts_and_costs() {
     ev(&s, "a", "ping", Some(0.9), 500_000);
     ev(&s, "b", "digest", Some(0.1), 500_000);
     ev(&s, "c", "untriaged", None, 0);
-    let r = build(&s, 0, 0.042);
+    let r = build(&s, 0, 0.042, 24 * 3600);
     assert_eq!(r.total, 3);
     assert_eq!(r.by_kind["ping"], 1);
     assert_eq!(r.by_kind["digest"], 1);
@@ -61,7 +61,7 @@ fn report_counts_avoidable_pings() {
     ev_kind(&s, "id-a", "ping");
     ev_kind(&s, "id-b", "digest");
     ev_kind(&s, "id-b", "escalate");
-    let r = build(&s, 0, 0.042);
+    let r = build(&s, 0, 0.042, 24 * 3600);
     assert_eq!(r.avoidable_pings, 3);
 }
 
@@ -89,4 +89,38 @@ async fn replay_simulates_repeat_from_observe_history() {
     assert_eq!(changed[0].0, seq2);
     assert_eq!(changed[0].2, "ping");
     assert_eq!(changed[0].3, "repeat");
+}
+
+fn ev_kind_at(s: &Store, identity: &str, kind: &str, at: i64) {
+    let a = Alert { source: "g".into(), status: Status::Firing, identity: identity.into(), summary: "p=0.90 disk".into(),
+                    details: "".into(), env: "prod".into(), severity: "critical".into() };
+    let seq = s.insert_event(&a, at);
+    s.insert_decision(&DecisionRow { event_seq: seq, decided_at: at, mode: "observe".into(), kind: kind.into(),
+        probability: Some(0.9), reason: "".into(), delivered: false, backend_ms: None, input_tokens: None });
+}
+
+#[test]
+fn report_avoidable_pings_respect_the_repeat_window() {
+    let s = Store::memory();
+    let t0 = 1_800_000_000;
+    ev_kind_at(&s, "id-a", "ping", t0);
+    ev_kind_at(&s, "id-a", "ping", t0 + 30 * 86_400); // lost resolved: a new incident, not avoidable
+    ev_kind_at(&s, "id-b", "ping", t0);
+    ev_kind_at(&s, "id-b", "ping", t0 + 3600); // a repeat within 24 h: avoidable
+    assert_eq!(build(&s, 0, 0.042, 24 * 3600).avoidable_pings, 1);
+}
+
+#[tokio::test]
+async fn replay_repeat_suppression_is_bounded_by_the_window() {
+    let fake = FakeHttp::start(system_one_from_state()).await;
+    let s = Store::memory();
+    let t0 = 1_800_000_000;
+    ev_kind_at(&s, "id1", "ping", t0);
+    ev_kind_at(&s, "id1", "ping", t0 + 30 * 86_400);
+    let cfg = Config::from_toml(&format!(
+        "[backend]\nurl='{}'\nmodel='m-1'\n[decision]\nmode='gate'\n[outputs]\nping='http://p'\nescalate='http://e'\ndigest='http://d'\n",
+        fake.url
+    )).unwrap();
+    let app = App::new(cfg, s, || 1_800_000_000 + 31 * 86_400).unwrap();
+    assert_eq!(replay(&app, 0).await, vec![]);
 }

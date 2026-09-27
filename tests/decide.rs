@@ -3,7 +3,7 @@ use alertsift::decide::{classify, route, Kind, Target};
 use proptest::prelude::*;
 
 fn cfg(mode: Mode, on_error: OnError) -> DecisionCfg {
-    DecisionCfg { mode, on_error, ping: 0.55, digest: 0.30, digest_at: "08:00".into() }
+    DecisionCfg { mode, on_error, ping: 0.55, digest: 0.30, digest_at: "08:00".into(), repeat_window_hours: 24 }
 }
 
 #[test]

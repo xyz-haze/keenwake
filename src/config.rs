@@ -65,6 +65,11 @@ pub struct DecisionCfg {
     pub digest: f64,
     #[serde(default = "d_digest_at")]
     pub digest_at: String,
+    /// A delivered ping (or untriaged ping) suppresses later ones for the same identity only if it
+    /// was decided within this many hours before the new event, so a lost `resolved` cannot
+    /// silence an identity forever.
+    #[serde(default = "d_repeat_window_hours")]
+    pub repeat_window_hours: u64,
 }
 fn d_ping() -> f64 {
     0.55
@@ -75,6 +80,14 @@ fn d_digest() -> f64 {
 fn d_digest_at() -> String {
     "08:00".into()
 }
+fn d_repeat_window_hours() -> u64 {
+    24
+}
+impl DecisionCfg {
+    pub fn repeat_window_secs(&self) -> i64 {
+        i64::try_from(self.repeat_window_hours.saturating_mul(3600)).unwrap_or(i64::MAX)
+    }
+}
 impl Default for DecisionCfg {
     fn default() -> Self {
         DecisionCfg {
@@ -83,6 +96,7 @@ impl Default for DecisionCfg {
             ping: d_ping(),
             digest: d_digest(),
             digest_at: d_digest_at(),
+            repeat_window_hours: d_repeat_window_hours(),
         }
     }
 }
@@ -284,6 +298,9 @@ impl Config {
         }
         if !valid_hhmm(&d.digest_at) {
             return Err(invalid("decision.digest_at must be HH:MM, UTC"));
+        }
+        if d.repeat_window_hours == 0 {
+            return Err(invalid("decision.repeat_window_hours must be greater than 0"));
         }
         if d.mode == Mode::Gate && self.outputs.ping.is_none() {
             return Err(invalid("mode = \"gate\" requires outputs.ping"));

@@ -125,15 +125,17 @@ impl Store {
     }
 
     /// True if the episode open at `before_seq` already had a delivered ping or untriaged
-    /// notification (both reach the team the same way a ping does).
-    pub fn episode_pinged(&self, identity: &str, before_seq: i64) -> bool {
+    /// notification (both reach the team the same way a ping does) decided at or after `since`.
+    /// The time bound keeps a lost `resolved` from silencing the identity forever.
+    pub fn episode_pinged(&self, identity: &str, before_seq: i64, since: i64) -> bool {
         let c = self.c();
         let start: Option<i64> = c.query_row(
             "SELECT COALESCE(MAX(seq), 0) FROM events WHERE identity = ?1 AND seq < ?2 AND status = 'resolved'",
             params![identity, before_seq], |r| r.get(0)).optional().expect("query");
         c.query_row("SELECT EXISTS(SELECT 1 FROM decisions d JOIN events e ON e.seq = d.event_seq
-                     WHERE e.identity = ?1 AND e.seq > ?2 AND e.seq < ?3 AND d.kind IN ('ping', 'untriaged') AND d.delivered = 1)",
-            params![identity, start.unwrap_or(0), before_seq], |r| r.get::<_, i64>(0)).expect("query") == 1
+                     WHERE e.identity = ?1 AND e.seq > ?2 AND e.seq < ?3 AND d.kind IN ('ping', 'untriaged') AND d.delivered = 1
+                     AND d.decided_at >= ?4)",
+            params![identity, start.unwrap_or(0), before_seq, since], |r| r.get::<_, i64>(0)).expect("query") == 1
     }
 
     pub fn queue_digest(&self, event_seq: i64) {

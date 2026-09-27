@@ -69,10 +69,12 @@ fn episode_pinged_sees_only_the_open_episode() {
     s.insert_decision(&DecisionRow { event_seq: e1, decided_at: t0, mode: "gate".into(), kind: "ping".into(),
         probability: Some(0.9), reason: "".into(), delivered: true, backend_ms: Some(5), input_tokens: Some(10) });
     let e2 = s.insert_event(&alert(Status::Firing), t0 + MIN);
-    assert!(s.episode_pinged("id", e2));
+    assert!(s.episode_pinged("id", e2, 0));
+    assert!(s.episode_pinged("id", e2, t0), "a ping decided exactly at the window start still counts");
+    assert!(!s.episode_pinged("id", e2, t0 + 1), "a ping decided before the window no longer counts");
     s.insert_event(&alert(Status::Resolved), t0 + 2 * MIN);
     let e4 = s.insert_event(&alert(Status::Firing), t0 + 3 * MIN);
-    assert!(!s.episode_pinged("id", e4), "a new episode starts clean");
+    assert!(!s.episode_pinged("id", e4, 0), "a new episode starts clean");
 }
 
 #[test]

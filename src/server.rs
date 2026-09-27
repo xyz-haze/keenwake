@@ -82,7 +82,7 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
     for alert in alerts {
         app.metrics.inc("alertsift_alerts_total", &[("source", source)]);
         let now = (app.clock)();
-        let p = prepare(&app.store, &app.redactor, alert, now);
+        let p = prepare(&app.store, &app.redactor, alert, now, app.cfg.decision.repeat_window_secs());
         let mode = mode_str(app.cfg.decision.mode).to_string();
         if !p.needs_model {
             let delivered = if app.cfg.decision.mode == Mode::Gate && p.already_pinged {

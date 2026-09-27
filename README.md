@@ -93,6 +93,7 @@ on_error = "ping"       # in gate: "ping" or "drop"
 ping = 0.55
 digest = 0.30
 digest_at = "08:00"
+repeat_window_hours = 24  # in gate: how long a delivered ping suppresses repeats
 
 [outputs]
 ping = "https://example.org/ping"
@@ -174,8 +175,10 @@ mode, a failure never changes what the team sees — it is only recorded and cou
 | alertsift itself is down | The source stops getting `200`s. Point a direct fallback contact (e.g. a Slack or PagerDuty webhook) at your alerting tool for this case — alertsift does not provide one. |
 
 Repeated notifications of an already-pinged episode — including an untriaged ping while the
-backend is down — never ping again in gate mode; the eventual `resolved` event still goes
-through. `/metrics` exposes Prometheus counters (alerts received per source, decisions per kind,
+backend is down — do not ping again in gate mode for `decision.repeat_window_hours` (default 24)
+after the last delivered ping; after that window a still-firing identity pings again, so a lost
+`resolved` cannot silence it forever. A `resolved` event goes through when the episode had a
+delivered ping within that window. `/metrics` exposes Prometheus counters (alerts received per source, decisions per kind,
 mapping and backend errors, backend latency, undelivered webhooks); `/healthz` is a plain
 liveness check.
 

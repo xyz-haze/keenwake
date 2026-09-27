@@ -15,6 +15,7 @@ fn defaults_are_observe_and_spec_thresholds() {
     assert_eq!(c.decision.ping, 0.55);
     assert_eq!(c.decision.digest, 0.30);
     assert_eq!(c.decision.digest_at, "08:00");
+    assert_eq!(c.decision.repeat_window_hours, 24);
     assert_eq!(c.backend.timeout_ms, 2000);
     assert_eq!(c.redact.patterns, vec!["email", "ip", "token"]);
     assert!(c.sources.contains_key("grafana"));
@@ -51,6 +52,14 @@ fn gate_requires_an_escalate_output() {
 fn gate_requires_a_digest_output() {
     let bad = format!("{MIN}\n[decision]\nmode = \"gate\"\n[outputs]\nping = \"http://x/ping\"\nescalate = \"http://x/escalate\"\n");
     assert!(Config::from_toml(&bad).unwrap_err().to_string().contains("outputs.digest"));
+}
+
+#[test]
+fn zero_repeat_window_is_refused() {
+    let bad = format!("{MIN}\n[decision]\nrepeat_window_hours = 0\n");
+    assert!(Config::from_toml(&bad).unwrap_err().to_string().contains("repeat_window_hours"));
+    let ok = format!("{MIN}\n[decision]\nrepeat_window_hours = 6\n");
+    assert_eq!(Config::from_toml(&ok).unwrap().decision.repeat_window_hours, 6);
 }
 
 #[test]

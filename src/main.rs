@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
             let store = Store::memory();
             for a in alerts {
                 println!("{a:#?}");
-                let p = alertsift::pipeline::prepare(&store, &redactor, a, now_utc());
+                let p = alertsift::pipeline::prepare(&store, &redactor, a, now_utc(), cfg.decision.repeat_window_secs());
                 println!("state sent to the model:\n  {}\n", p.state);
             }
         }
@@ -88,7 +88,8 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Report { since, json } => {
             let store = Store::open(&cfg.store.path)?;
-            let r = alertsift::report::build(&store, now_utc() - alertsift::report::parse_since(&since)?, alertsift::report::JEV_USD_PER_MTOK);
+            let r = alertsift::report::build(&store, now_utc() - alertsift::report::parse_since(&since)?, alertsift::report::JEV_USD_PER_MTOK,
+                cfg.decision.repeat_window_secs());
             if json {
                 println!("{}", serde_json::to_string_pretty(&r)?);
             } else {
