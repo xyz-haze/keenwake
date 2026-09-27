@@ -119,8 +119,8 @@ async fn main() -> anyhow::Result<()> {
             if changed.is_empty() {
                 println!("no decision changes");
             }
-            for (seq, summary, old, new) in changed {
-                println!("#{seq} {old} -> {new}  {summary}");
+            for c in changed {
+                println!("#{} {} -> {}  {}", c.seq, c.old.as_str(), c.new.as_str(), c.summary);
             }
         }
     }

@@ -1,15 +1,23 @@
 //! Observe-mode report and replay diff.
 
-use crate::decide::Kind;
-use crate::history::{facts, WINDOW_SECS};
-use crate::pipeline::{finish, Prepared};
+use crate::decide::{route, Kind};
+use crate::history::{facts, Facts, WINDOW_SECS};
 use crate::server::App;
 use crate::state::sentence;
-use crate::store::Store;
+use crate::store::{Event, Store};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 
 pub const JEV_USD_PER_MTOK: f64 = 0.042;
+
+/// A stored event whose decision `replay` would now make differently.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Change {
+    pub seq: i64,
+    pub summary: String,
+    pub old: Kind,
+    pub new: Kind,
+}
 
 #[derive(Debug, Serialize)]
 pub struct ReportRow {
@@ -43,10 +51,38 @@ pub fn parse_since(s: &str) -> anyhow::Result<i64> {
     })
 }
 
-/// True if a ping decided at `last` still suppresses a new one for an event at `at`: the same
-/// time-bounded rule as `Store::episode_pinged`, applied to simulated decisions.
-fn within(last: Option<i64>, at: i64, repeat_window: i64) -> bool {
-    last.is_some_and(|t| t >= at.saturating_sub(repeat_window))
+/// Repeat suppression over simulated decisions: per identity, when the team was last notified
+/// (ping or untriaged) in the still-open episode. The same time-bounded rule as
+/// `Store::episode_pinged`, which only sees decisions `serve` actually delivered.
+struct RepeatSim {
+    window: i64,
+    last: HashMap<String, i64>,
+}
+
+impl RepeatSim {
+    fn new(window: i64) -> RepeatSim {
+        RepeatSim { window, last: HashMap::new() }
+    }
+
+    /// A resolved event ends the episode.
+    fn resolved(&mut self, identity: &str) {
+        self.last.remove(identity);
+    }
+
+    /// True if a notification at `at` would repeat one sent within the window.
+    fn suppresses(&self, identity: &str, at: i64) -> bool {
+        self.last.get(identity).is_some_and(|&t| t >= at.saturating_sub(self.window))
+    }
+
+    fn notified(&mut self, identity: &str, at: i64) {
+        self.last.insert(identity.to_string(), at);
+    }
+}
+
+/// History facts for a stored event, as `serve` computed them when it arrived.
+fn stored_facts(store: &Store, e: &Event) -> Facts {
+    let before = store.events_for(&e.alert.identity, e.received_at - WINDOW_SECS, e.seq);
+    facts(&before, &e.alert, e.received_at)
 }
 
 pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64) -> Report {
@@ -54,9 +90,8 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
     let mut by_kind = BTreeMap::new();
     let mut ms: Vec<i64> = Vec::new();
     let (mut tokens, mut errors, mut first_seen, mut avoidable) = (0i64, 0u64, 0u64, 0u64);
-    // Per identity: when a gate would last have pinged for the still-open episode, decided from
-    // the STORED kinds (not replayed) in seq order, with the same repeat window as `serve`.
-    let mut pinged: HashMap<String, Option<i64>> = HashMap::new();
+    // Simulated from the STORED kinds (not replayed) in seq order, with the same window as `serve`.
+    let mut sim = RepeatSim::new(repeat_window);
     let mut out = Vec::new();
     for (e, d) in &rows {
         *by_kind.entry(d.kind.as_str()).or_insert(0) += 1;
@@ -67,19 +102,18 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
             ms.push(m);
         }
         tokens += d.input_tokens.unwrap_or(0);
-        let before = store.events_for(&e.alert.identity, e.received_at - WINDOW_SECS, e.seq);
-        if d.kind != Kind::Resolved && facts(&before, &e.alert, e.received_at).episodes_7d == 0 {
+        if d.kind != Kind::Resolved && stored_facts(store, e).episodes_7d == 0 {
             first_seen += 1;
         }
-        let last = pinged.entry(e.alert.identity.clone()).or_insert(None);
+        let id = &e.alert.identity;
         match d.kind {
-            Kind::Resolved => *last = None,
+            Kind::Resolved => sim.resolved(id),
             Kind::Digest | Kind::Escalate => avoidable += 1,
             Kind::Ping | Kind::Untriaged => {
-                if within(*last, e.received_at, repeat_window) {
+                if sim.suppresses(id, e.received_at) {
                     avoidable += 1;
                 } else {
-                    *last = Some(e.received_at);
+                    sim.notified(id, e.received_at);
                 }
             }
             Kind::Repeat => {}
@@ -131,39 +165,24 @@ impl Report {
 /// simulated purely from the kinds this replay itself produces, per identity, in seq order, using
 /// event times — never from `Store::episode_pinged`, whose `delivered` flag observe-mode history
 /// (the usual source for a replay) never sets.
-pub async fn replay(app: &App, since: i64) -> Vec<(i64, String, String, String)> {
+pub async fn replay(app: &App, since: i64) -> Vec<Change> {
     let mut changed = Vec::new();
-    let window = app.cfg.decision.repeat_window_secs();
-    let mut pinged: HashMap<String, Option<i64>> = HashMap::new();
+    let mut sim = RepeatSim::new(app.cfg.decision.repeat_window_secs());
     for (e, old) in app.store.decisions_since(since) {
-        let last = pinged.entry(e.alert.identity.clone()).or_insert(None);
+        let id = &e.alert.identity;
         if old.kind == Kind::Resolved {
-            *last = None;
+            sim.resolved(id);
             continue;
         }
-        let before = app.store.events_for(&e.alert.identity, e.received_at - WINDOW_SECS, e.seq);
-        let f = facts(&before, &e.alert, e.received_at);
-        let p = Prepared {
-            event_seq: e.seq,
-            alert: e.alert.clone(),
-            state: sentence(&e.alert, &f),
-            facts: f,
-            already_pinged: within(*last, e.received_at, window),
-            needs_model: true,
-        };
+        let state = sentence(&e.alert, &stored_facts(&app.store, &e));
         let outcome =
-            app.backend.ask(&p.state, &app.cfg.question).await.map(|a| a.probability).map_err(|e| e.to_string());
-        let new_kind = finish(&app.cfg, &p, outcome).kind;
-        if matches!(new_kind, Kind::Ping | Kind::Untriaged) {
-            *last = Some(e.received_at);
+            app.backend.ask(&state, &app.cfg.question).await.map(|a| a.probability).map_err(|e| e.to_string());
+        let new = route(&app.cfg.decision, outcome, sim.suppresses(id, e.received_at)).kind;
+        if matches!(new, Kind::Ping | Kind::Untriaged) {
+            sim.notified(id, e.received_at);
         }
-        if new_kind != old.kind {
-            changed.push((
-                e.seq,
-                e.alert.summary.clone(),
-                old.kind.as_str().to_string(),
-                new_kind.as_str().to_string(),
-            ));
+        if new != old.kind {
+            changed.push(Change { seq: e.seq, summary: e.alert.summary, old: old.kind, new });
         }
     }
     changed

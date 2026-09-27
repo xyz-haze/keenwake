@@ -2,11 +2,11 @@
 
 use crate::backend::Backend;
 use crate::config::{Config, Mode};
-use crate::decide::{Kind, Target};
+use crate::decide::{route, Kind, Target};
 use crate::mapping::extract;
 use crate::metrics::Metrics;
 use crate::output::{message, Sender};
-use crate::pipeline::{facts_line, finish, prepare};
+use crate::pipeline::{facts_line, prepare};
 use crate::redact::Redactor;
 use crate::store::{DecisionRow, Store};
 use crate::worker::Queue;
@@ -132,7 +132,7 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
             }
         };
         let prob = outcome.as_ref().ok().copied();
-        let r = finish(&app.cfg, &p, outcome);
+        let r = route(&app.cfg.decision, outcome, p.already_pinged);
         app.metrics.inc("keenwake_decisions_total", &[("kind", r.kind.as_str())]);
         let delivered = match r.target {
             Target::DigestQueue => {

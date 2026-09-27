@@ -144,9 +144,9 @@ async fn replay_simulates_repeat_from_observe_history() {
 
     let changed = replay(&app, 0).await;
     assert_eq!(changed.len(), 1, "{changed:?}");
-    assert_eq!(changed[0].0, seq2);
-    assert_eq!(changed[0].2, "ping");
-    assert_eq!(changed[0].3, "repeat");
+    assert_eq!(changed[0].seq, seq2);
+    assert_eq!(changed[0].old, Kind::Ping);
+    assert_eq!(changed[0].new, Kind::Repeat);
 }
 
 fn ev_kind_at(s: &Store, identity: &str, kind: Kind, at: i64) {

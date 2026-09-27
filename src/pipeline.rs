@@ -1,7 +1,6 @@
-//! The decision path shared by `serve` and `replay`: prepare (store, history, state), then finish (route).
+//! The first half of `serve`'s decision path: store the alert, then compute its history and the
+//! state sent to the model. `decide::route` is the second half.
 
-use crate::config::Config;
-use crate::decide::{route, Routing};
 use crate::history::{facts, Facts, WINDOW_SECS};
 use crate::mapping::{Alert, Status};
 use crate::redact::Redactor;
@@ -29,10 +28,6 @@ pub fn prepare(store: &Store, redactor: &Redactor, mut alert: Alert, now: i64, r
     let already_pinged = store.episode_pinged(&alert.identity, event_seq, now.saturating_sub(repeat_window));
     let needs_model = alert.status == Status::Firing;
     Prepared { event_seq, alert, facts: f, state, already_pinged, needs_model }
-}
-
-pub fn finish(cfg: &Config, p: &Prepared, outcome: Result<f64, String>) -> Routing {
-    route(&cfg.decision, outcome, p.already_pinged)
 }
 
 pub fn facts_line(f: &Facts) -> String {
