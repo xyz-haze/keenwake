@@ -1,7 +1,9 @@
 # Add a source
 
-A source is one alerting tool, not one alert: every alert a tool sends shares its webhook format.
-These steps work the same for a person or a coding agent.
+**One endpoint per tool, not per alert.** Everything Grafana sends goes to `/hook/grafana`, whether
+it has 3 alert rules or 300. keenwake tells the alerts apart with the `identity` field, and keeps a
+separate history for each one. Grafana and Alertmanager work out of the box; this page is for any
+other tool. The steps work the same for a person or a coding agent.
 
 ## For your own setup
 
