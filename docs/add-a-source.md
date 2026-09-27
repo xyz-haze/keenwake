@@ -32,13 +32,20 @@ other tool. The steps work the same for a person or a coding agent.
    Add a section to your `keenwake.toml` that says which JSON field holds what:
 
    ```toml
-   [source.healthcheck]            # "healthcheck" becomes the URL: /hook/healthcheck
-   alerts = ""                     # one alert per webhook
+   # "healthcheck" becomes the URL: /hook/healthcheck
+   [source.healthcheck]
+   # "" = one alert per webhook (or a JSON pointer to an array of alerts)
+   alerts = ""
+
    [source.healthcheck.fields]
-   status = { path = "/state", map = { KO = "firing", OK = "resolved" } }  # "KO" means firing
-   identity = { path = "/check" }                   # same check name = same alert, for history
-   summary = { template = "{check} failed: {line}" }  # the text the model reads
-   env = { const = "prod" }                         # not in the payload, so set it here
+   # "state" is "KO" while broken, "OK" once fixed
+   status = { path = "/state", map = { KO = "firing", OK = "resolved" } }
+   # same check name = same alert, so it gets one history
+   identity = { path = "/check" }
+   # the text the model reads
+   summary = { template = "{check} failed: {line}" }
+   # not in the payload, so set it here
+   env = { const = "prod" }
    ```
 
 3. **Check the translation.** No network, no model call:
