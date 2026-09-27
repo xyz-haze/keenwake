@@ -35,9 +35,9 @@ pub struct Sender {
 }
 
 impl Sender {
-    pub fn new(undelivered: String, base_delay_ms: u64) -> Sender {
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(10)).build().expect("http client");
-        Sender { client, undelivered, base_delay_ms }
+    pub fn new(undelivered: String, base_delay_ms: u64) -> Result<Sender, reqwest::Error> {
+        let client = reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?;
+        Ok(Sender { client, undelivered, base_delay_ms })
     }
 
     pub async fn post(&self, url: &str, body: &Value) -> bool {

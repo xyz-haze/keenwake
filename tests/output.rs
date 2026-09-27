@@ -34,7 +34,7 @@ fn message_has_text_and_structured_part() {
 async fn delivers_on_success() {
     let fake = FakeHttp::start(Arc::new(|_| (200, "ok".into(), 0))).await;
     let dir = tempfile::tempdir().unwrap();
-    let s = Sender::new(dir.path().join("u.jsonl").to_str().unwrap().into(), 1);
+    let s = Sender::new(dir.path().join("u.jsonl").to_str().unwrap().into(), 1).unwrap();
     assert!(s.post(&fake.url, &serde_json::json!({"a": 1})).await);
     assert_eq!(fake.bodies(), vec![serde_json::json!({"a": 1})]);
 }
@@ -50,7 +50,7 @@ async fn retries_then_writes_undelivered() {
     .await;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("u.jsonl");
-    let s = Sender::new(path.to_str().unwrap().into(), 1);
+    let s = Sender::new(path.to_str().unwrap().into(), 1).unwrap();
     assert!(!s.post(&fake.url, &serde_json::json!({"a": 1})).await);
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     let line: serde_json::Value =
@@ -72,7 +72,7 @@ async fn second_attempt_success_counts_as_delivered() {
     }))
     .await;
     let dir = tempfile::tempdir().unwrap();
-    let s = Sender::new(dir.path().join("u.jsonl").to_str().unwrap().into(), 1);
+    let s = Sender::new(dir.path().join("u.jsonl").to_str().unwrap().into(), 1).unwrap();
     assert!(s.post(&fake.url, &serde_json::json!({})).await);
     assert!(!dir.path().join("u.jsonl").exists());
 }

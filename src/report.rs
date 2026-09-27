@@ -40,14 +40,19 @@ pub struct Report {
     pub avoidable_pings: u64,
 }
 
-pub fn parse_since(s: &str) -> anyhow::Result<i64> {
+#[derive(Debug, thiserror::Error)]
+#[error("expected e.g. 7d, 12h, 30m")]
+pub struct BadSince;
+
+/// A `--since` duration (`7d`, `12h`, `30m`) in seconds.
+pub fn parse_since(s: &str) -> Result<i64, BadSince> {
     let (n, unit) = s.split_at(s.len().saturating_sub(1));
-    let n: i64 = n.parse().map_err(|_| anyhow::anyhow!("--since expects e.g. 7d, 12h, 30m"))?;
+    let n: i64 = n.parse().map_err(|_| BadSince)?;
     Ok(n * match unit {
         "d" => 86_400,
         "h" => 3600,
         "m" => 60,
-        _ => anyhow::bail!("--since expects e.g. 7d, 12h, 30m"),
+        _ => return Err(BadSince),
     })
 }
 

@@ -102,7 +102,7 @@ const DECISION_COLS: &str =
     "d.event_seq, d.decided_at, d.mode, d.kind, d.probability, d.reason, d.delivered, d.backend_ms, d.input_tokens";
 
 impl Store {
-    pub fn open(path: &str) -> anyhow::Result<Store> {
+    pub fn open(path: &str) -> rusqlite::Result<Store> {
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch(SCHEMA)?;

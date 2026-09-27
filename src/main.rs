@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use keenwake::config::Config;
+use keenwake::report::parse_since;
 use keenwake::server::{now_utc, router, App};
 use keenwake::store::Store;
 use std::path::PathBuf;
@@ -26,16 +27,16 @@ enum Cmd {
     },
     /// Summarise decisions over a window, e.g. --since 7d.
     Report {
-        #[arg(long, default_value = "7d")]
-        since: String,
+        #[arg(long, default_value = "7d", value_parser = parse_since)]
+        since: i64,
         #[arg(long)]
         json: bool,
     },
     /// Re-decide stored alerts with the current config (mapping is not replayed; repeat
     /// suppression is simulated from the replayed decisions). Calls the backend.
     Replay {
-        #[arg(long, default_value = "7d")]
-        since: String,
+        #[arg(long, default_value = "7d", value_parser = parse_since)]
+        since: i64,
     },
 }
 
@@ -102,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
             let store = Store::open(&cfg.store.path)?;
             let r = keenwake::report::build(
                 &store,
-                now_utc() - keenwake::report::parse_since(&since)?,
+                now_utc() - since,
                 keenwake::report::JEV_USD_PER_MTOK,
                 cfg.decision.repeat_window_secs(),
             );
@@ -115,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Replay { since } => {
             let store = Store::open(&cfg.store.path)?;
             let app = App::new(cfg, store, now_utc)?;
-            let changed = keenwake::report::replay(&app, now_utc() - keenwake::report::parse_since(&since)?).await;
+            let changed = keenwake::report::replay(&app, now_utc() - since).await;
             if changed.is_empty() {
                 println!("no decision changes");
             }

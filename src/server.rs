@@ -1,6 +1,6 @@
 //! HTTP entry: /hook/{source}, /metrics, /healthz.
 
-use crate::backend::Backend;
+use crate::backend::{Backend, SetupError};
 use crate::config::{Config, Mode};
 use crate::decide::{route, Kind, Target};
 use crate::mapping::extract;
@@ -36,10 +36,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cfg: Config, store: Store, clock: fn() -> i64) -> anyhow::Result<App> {
+    pub fn new(cfg: Config, store: Store, clock: fn() -> i64) -> Result<App, SetupError> {
         Ok(App {
             backend: Backend::new(&cfg.backend)?,
-            sender: Sender::new(cfg.store.undelivered.clone(), 200),
+            sender: Sender::new(cfg.store.undelivered.clone(), 200)?,
             redactor: Redactor::new(&cfg.redact.patterns),
             metrics: Metrics::default(),
             store,

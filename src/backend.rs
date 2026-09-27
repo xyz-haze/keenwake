@@ -37,6 +37,15 @@ pub enum BackendError {
     Transport(String),
 }
 
+/// Why a `Backend` (or the `App` holding it) could not be built.
+#[derive(Debug, thiserror::Error)]
+pub enum SetupError {
+    #[error("environment variable {0} is not set")]
+    MissingEnv(String),
+    #[error(transparent)]
+    Http(#[from] reqwest::Error),
+}
+
 pub struct Backend {
     client: reqwest::Client,
     endpoint: String,
@@ -45,12 +54,10 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn new(cfg: &BackendCfg) -> anyhow::Result<Backend> {
+    pub fn new(cfg: &BackendCfg) -> Result<Backend, SetupError> {
         let client = reqwest::Client::builder().timeout(Duration::from_millis(cfg.timeout_ms)).build()?;
         let api_key = match &cfg.api_key_env {
-            Some(var) => {
-                Some(std::env::var(var).map_err(|_| anyhow::anyhow!("environment variable {var} is not set"))?)
-            }
+            Some(var) => Some(std::env::var(var).map_err(|_| SetupError::MissingEnv(var.clone()))?),
             None => None,
         };
         Ok(Backend {
