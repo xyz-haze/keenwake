@@ -3,7 +3,7 @@ Output docs/img/demo.gif
 Set Shell bash
 Set FontSize 18
 Set Width 1100
-Set Height 440
+Set Height 330
 Set Padding 24
 Set TypingSpeed 35ms
 Set Theme "GitHub Dark"
@@ -15,11 +15,7 @@ Type "sleep 1; clear" Enter
 Sleep 2s
 Show
 
-Type "# A CPU alert that flaps: it fires, then clears on its own. Five times." Enter
+Type "# The same CPU alert fires, then clears on its own. Five times." Enter
 Sleep 500ms
-Type "for i in 1 2 3 4 5; do ./alert.sh firing; sleep 1; ./alert.sh resolved; done" Enter
-Sleep 12s
-Type "# What would keenwake have woken you for?" Enter
-Sleep 500ms
-Type "keenwake --config keenwake.toml report --since 1h" Enter
-Sleep 6s
+Type "for i in 1 2 3 4 5; do ./flap.sh $i; done" Enter
+Sleep 14s
