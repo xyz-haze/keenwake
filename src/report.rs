@@ -45,6 +45,7 @@ pub struct Report {
     pub input_tokens: i64,
     pub est_cost_usd: f64,
     pub rows: Vec<ReportRow>,
+    /// Decisions gate would send to no one: digests and repeats. The name is kept for `--json`.
     pub avoidable_pings: u64,
 }
 
@@ -136,8 +137,10 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
         let id = &e.alert.identity;
         match d.kind {
             Kind::Resolved => sim.resolved(id),
-            Kind::Digest | Kind::Escalate => avoidable += 1,
-            Kind::Ping | Kind::Untriaged => {
+            // What gate would send nowhere: a digest waits for the daily digest, and a repeat of
+            // a notification already sent is dropped. An escalate still notifies someone.
+            Kind::Digest => avoidable += 1,
+            Kind::Ping | Kind::Escalate | Kind::Untriaged => {
                 if sim.floor(id, e.received_at).is_some_and(|f| f.urgency() >= d.kind.urgency()) {
                     avoidable += 1;
                 } else {
@@ -192,7 +195,7 @@ impl fmt::Display for Report {
             writeln!(f, "  {k:<10} {v}")?;
         }
         writeln!(f, "first seen in 7 days (decided without history): {}", self.first_seen)?;
-        writeln!(f, "avoidable pings (simulated gate): {}", self.avoidable_pings)?;
+        writeln!(f, "pings gate would hold back (digest or repeat, simulated): {}", self.avoidable_pings)?;
         writeln!(f, "backend errors: {}", self.backend_errors)?;
         if let Some(m) = self.median_backend_ms {
             writeln!(f, "median backend latency: {m} ms")?;

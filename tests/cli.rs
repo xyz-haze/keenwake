@@ -65,21 +65,26 @@ fn report_counts_and_costs() {
     assert!(r.to_string().contains("ping"));
 }
 
+/// Held back = gate would notify no one: a digest, or a repeat within the episode. An escalate
+/// still notifies someone, so only its repeat counts.
 #[test]
 fn report_counts_avoidable_pings() {
     let s = Store::memory();
     for (identity, kind) in [
         ("id-a", Kind::Ping),
-        ("id-a", Kind::Ping),
+        ("id-a", Kind::Ping), // repeat: held back
         ("id-a", Kind::Resolved),
         ("id-a", Kind::Ping),
-        ("id-b", Kind::Digest),
+        ("id-b", Kind::Digest), // held back
         ("id-b", Kind::Escalate),
+        ("id-c", Kind::Escalate),
+        ("id-c", Kind::Escalate), // repeat: held back
     ] {
         ev_kind_at(&s, identity, kind, T0);
     }
     let r = build(&s, 0, 0.042, 24 * 3600);
     assert_eq!(r.avoidable_pings, 3);
+    assert!(r.to_string().contains("pings gate would hold back (digest or repeat, simulated): 3\n"), "{r}");
 }
 
 #[tokio::test]
