@@ -199,3 +199,35 @@ fn extract_each_maps_alerts_one_by_one() {
     assert_eq!(extract("grafana", &grafana_like(), body), Err(MapError::BadStatus("maybe".into())));
     assert_eq!(extract_each("grafana", &grafana_like(), b"nope"), Err(MapError::NotJson));
 }
+
+/// Every reference that finds nothing is named, per alert: a typo in a template key, a wrong
+/// env path, and a first_of whose candidates all miss. Consts and unset fields are not references.
+#[test]
+fn unresolved_names_each_reference_that_found_nothing() {
+    use keenwake::mapping::unresolved;
+    let spec = SourceSpec {
+        alerts: "".into(),
+        fields: Fields {
+            status: FieldSpec::Const { value: "firing".into() },
+            identity: None,
+            summary: FieldSpec::Template { template: "{probe/name}: {result/eror}".into() },
+            details: Some(FieldSpec::FirstOf { first_of: vec!["/a".into(), "b".into()], map: None }),
+            env: Some(p("/labels/stage")),
+            severity: Some(p("/labels/severity")),
+        },
+    };
+    let body = br#"{"probe": {"name": "api-health"}, "result": {"error": "timeout"}, "labels": {"severity": "high"}}"#;
+    let u = unresolved(&spec, body).unwrap();
+    let got: Vec<(usize, &str, &str)> = u.iter().map(|u| (u.alert, u.field, u.pointer.as_str())).collect();
+    assert_eq!(got, vec![(0, "summary", "/result/eror"), (0, "details", "/a, /b"), (0, "env", "/labels/stage")]);
+    assert_eq!(u[0].to_string(), "alert 0, field summary: /result/eror resolved to nothing");
+}
+
+#[test]
+fn unresolved_names_only_the_missing_optional_field() {
+    let body = std::fs::read("tests/fixtures/grafana.json").unwrap();
+    let u = keenwake::mapping::unresolved(&grafana_like(), &body).unwrap();
+    // The fixture's second alert has no description: that one reference, and only it, is named.
+    let got: Vec<(usize, &str)> = u.iter().map(|u| (u.alert, u.field)).collect();
+    assert_eq!(got, vec![(1, "details")]);
+}

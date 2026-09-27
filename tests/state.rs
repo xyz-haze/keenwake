@@ -69,3 +69,13 @@ fn sub_minute_median() {
     let f = Facts { minutes: 4, ..f };
     assert!(sentence(&a("prod"), &f).contains("This time it has lasted much longer than usual."));
 }
+
+/// No env label mapped is not evidence the alert is outside production: saying so pushed a
+/// critical first-seen disk alert down to the digest.
+#[test]
+fn unknown_env_makes_no_production_claim() {
+    let f = Facts { env: "unknown".into(), firing: true, minutes: 0, episodes_7d: 0, median_minutes: None };
+    let s = sentence(&a("unknown"), &f);
+    assert!(s.starts_with("Environment: unknown. The alert is still firing"), "{s}");
+    assert!(!s.contains("not production"), "{s}");
+}

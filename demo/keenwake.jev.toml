@@ -1,0 +1,21 @@
+# keenwake.toml with the hosted Jev backend instead of the local Laya sidecar.
+# Selected by `KEENWAKE_DEMO_BACKEND=jev ./e2e.sh`, through docker-compose.jev.yml.
+[backend]
+url = "https://api.typesafe.ai"
+model = "jev-1.13.0"
+api_key_env = "TYPESAFE_API_KEY"
+timeout_ms = 5000
+
+[decision]
+mode = "gate"
+ping = 0.55
+digest = 0.30
+
+[outputs]
+ping = "http://sink:9000/ping"
+escalate = "http://sink:9000/escalate"
+digest = "http://sink:9000/digest"
+
+[store]
+path = "/data/keenwake.db"
+undelivered = "/data/undelivered.jsonl"

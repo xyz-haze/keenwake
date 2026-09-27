@@ -1,6 +1,6 @@
 //! Observe-mode report and replay diff.
 
-use crate::config::Mode;
+use crate::config::{BackendCfg, Mode};
 use crate::decide::{repeat_floor, route, Kind, Sent, Target};
 use crate::history::{facts, Facts, WINDOW_SECS};
 use crate::server::App;
@@ -11,6 +11,16 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 pub const JEV_USD_PER_MTOK: f64 = 0.042;
+
+/// The list price per million input tokens of `b`, known only for Jev: the hosted API, or a Jev
+/// model behind another url. Any other backend (a local Laya) gets no cost estimate.
+pub fn list_price_per_mtok(b: &BackendCfg) -> Option<f64> {
+    let hosted = reqwest::Url::parse(&b.url).is_ok_and(|u| u.host_str() == Some("api.typesafe.ai"));
+    (hosted || b.model.starts_with("jev")).then_some(JEV_USD_PER_MTOK)
+}
+
+/// How many decisions the text report lists; `--json` has them all.
+const LISTED_ROWS: usize = 30;
 
 /// A stored event whose decision `replay` would now make differently.
 #[derive(Debug, Clone, PartialEq)]
@@ -23,6 +33,9 @@ pub struct Change {
 
 #[derive(Debug, Serialize)]
 pub struct ReportRow {
+    /// When the alert arrived. Text output only: `--json` rows keep their original fields.
+    #[serde(skip)]
+    pub received_at: i64,
     pub summary: String,
     pub identity: String,
     pub kind: &'static str,
@@ -37,8 +50,10 @@ pub struct Report {
     pub backend_errors: u64,
     pub median_backend_ms: Option<i64>,
     pub input_tokens: i64,
-    pub est_cost_usd: f64,
+    /// `None` when the backend has no known list price.
+    pub est_cost_usd: Option<f64>,
     pub rows: Vec<ReportRow>,
+    /// Decisions gate would send to no one: digests and repeats. The name is kept for `--json`.
     pub avoidable_pings: u64,
 }
 
@@ -107,7 +122,7 @@ fn stored_facts(store: &Store, e: &Event) -> Facts {
     facts(&before, &e.alert, e.received_at)
 }
 
-pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64) -> Report {
+pub fn build(store: &Store, since: i64, price_per_mtok: Option<f64>, repeat_window: i64) -> Report {
     let rows = store.decisions_since(since);
     let mut by_kind = BTreeMap::new();
     let mut ms: Vec<i64> = Vec::new();
@@ -130,8 +145,10 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
         let id = &e.alert.identity;
         match d.kind {
             Kind::Resolved => sim.resolved(id),
-            Kind::Digest | Kind::Escalate => avoidable += 1,
-            Kind::Ping | Kind::Untriaged => {
+            // What gate would send nowhere: a digest waits for the daily digest, and a repeat of
+            // a notification already sent is dropped. An escalate still notifies someone.
+            Kind::Digest => avoidable += 1,
+            Kind::Ping | Kind::Escalate | Kind::Untriaged => {
                 if sim.floor(id, e.received_at).is_some_and(|f| f.urgency() >= d.kind.urgency()) {
                     avoidable += 1;
                 } else {
@@ -141,6 +158,7 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
             Kind::Repeat => {}
         }
         out.push(ReportRow {
+            received_at: e.received_at,
             summary: e.alert.summary.clone(),
             identity: e.alert.identity.clone(),
             kind: d.kind.as_str(),
@@ -155,10 +173,26 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
         backend_errors: errors,
         median_backend_ms: ms.get(ms.len().saturating_sub(1) / 2).copied().filter(|_| !ms.is_empty()),
         input_tokens: tokens,
-        est_cost_usd: tokens as f64 * price_per_mtok / 1e6,
+        est_cost_usd: price_per_mtok.map(|p| tokens as f64 * p / 1e6),
         rows: out,
         avoidable_pings: avoidable,
     }
+}
+
+/// `ts` as `YYYY-MM-DD HH:MM UTC`. Days to civil date after Howard Hinnant's `civil_from_days`,
+/// to avoid a date crate for one line of output.
+fn utc_minute(ts: i64) -> String {
+    let (days, secs) = (ts.div_euclid(86_400), ts.rem_euclid(86_400));
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02} {:02}:{:02} UTC", secs / 3600, secs % 3600 / 60)
 }
 
 /// The human-readable report printed by `keenwake report`.
@@ -169,12 +203,29 @@ impl fmt::Display for Report {
             writeln!(f, "  {k:<10} {v}")?;
         }
         writeln!(f, "first seen in 7 days (decided without history): {}", self.first_seen)?;
-        writeln!(f, "avoidable pings (simulated gate): {}", self.avoidable_pings)?;
+        writeln!(f, "pings gate would hold back (digest or repeat, simulated): {}", self.avoidable_pings)?;
         writeln!(f, "backend errors: {}", self.backend_errors)?;
         if let Some(m) = self.median_backend_ms {
             writeln!(f, "median backend latency: {m} ms")?;
         }
-        writeln!(f, "input tokens: {} (about ${:.4} at Jev list price)", self.input_tokens, self.est_cost_usd)
+        match self.est_cost_usd {
+            Some(usd) => writeln!(f, "input tokens: {} (about ${usd:.4} at Jev list price)", self.input_tokens)?,
+            None => writeln!(f, "input tokens: {}", self.input_tokens)?,
+        }
+        // The counts do not say which alerts were held back: list the latest decisions, oldest first.
+        if self.rows.is_empty() {
+            return Ok(());
+        }
+        writeln!(f, "decisions, most recent last:")?;
+        let hidden = self.rows.len().saturating_sub(LISTED_ROWS);
+        if hidden > 0 {
+            writeln!(f, "  ... {hidden} more, use --json")?;
+        }
+        for r in &self.rows[hidden..] {
+            let p = r.probability.map_or("p=-   ".to_string(), |p| format!("p={p:.2}"));
+            writeln!(f, "  {}  {:<9}  {p}  {}", utc_minute(r.received_at), r.kind, r.summary)?;
+        }
+        Ok(())
     }
 }
 

@@ -5,8 +5,22 @@
 # Runs entirely inside the "keenwake-demo" compose project (see the `name:` key in
 # docker-compose.yml) so it never touches any other container on this machine. No host ports
 # are published: everything talks over the compose network.
+#
+# Backend: the local Laya sidecar by default. KEENWAKE_DEMO_BACKEND=jev uses the hosted Jev API
+# instead (needs TYPESAFE_API_KEY in the environment, and sends the demo alerts to TypeSafe).
 set -euo pipefail
 cd "$(dirname "$0")"
+
+case "${KEENWAKE_DEMO_BACKEND:-laya}" in
+  laya) export COMPOSE_FILE=docker-compose.yml ;;
+  jev)
+    # Fail now rather than after a 10-minute run where every decision came back untriaged.
+    [ -n "${TYPESAFE_API_KEY:-}" ] || { echo "KEENWAKE_DEMO_BACKEND=jev needs TYPESAFE_API_KEY set" >&2; exit 2; }
+    # Every docker compose call below, cleanup included, then sees the Jev overlay.
+    export COMPOSE_FILE=docker-compose.yml:docker-compose.jev.yml ;;
+  *) echo "KEENWAKE_DEMO_BACKEND must be laya or jev, got: $KEENWAKE_DEMO_BACKEND" >&2; exit 2 ;;
+esac
+echo "backend: ${KEENWAKE_DEMO_BACKEND:-laya}"
 mkdir -p out
 rm -f out/truth.jsonl out/sink.jsonl out/report.json out/compose.log
 
@@ -22,7 +36,7 @@ trap cleanup EXIT
 
 docker compose up -d --build
 
-echo "waiting for chaos to finish (first run downloads the Laya checkpoint from Hugging Face, can take ~15 min)..."
+echo "waiting for chaos to finish (with Laya, the first run downloads its checkpoint from Hugging Face, can take ~15 min)..."
 for _ in $(seq 1 220); do
   docker compose logs chaos 2>/dev/null | grep -q "chaos done" && break
   sleep 10

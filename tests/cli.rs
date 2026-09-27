@@ -1,10 +1,11 @@
 mod common;
 
 use common::{alert, app, config, decision, system_one_from_state, FakeHttp, T0};
+use keenwake::config::BackendCfg;
 use keenwake::config::Mode;
 use keenwake::decide::Kind;
 use keenwake::mapping::{Alert, Status};
-use keenwake::report::{build, parse_since, replay};
+use keenwake::report::{build, list_price_per_mtok, parse_since, replay};
 use keenwake::server::App;
 use keenwake::store::{DecisionRow, Store};
 
@@ -54,32 +55,38 @@ fn report_counts_and_costs() {
     ev(&s, "a", Kind::Ping, Some(0.9), 500_000);
     ev(&s, "b", Kind::Digest, Some(0.1), 500_000);
     ev(&s, "c", Kind::Untriaged, None, 0);
-    let r = build(&s, 0, 0.042, 24 * 3600);
+    let r = build(&s, 0, Some(0.042), 24 * 3600);
     assert_eq!(r.total, 3);
     assert_eq!(r.by_kind["ping"], 1);
     assert_eq!(r.by_kind["digest"], 1);
     assert_eq!(r.backend_errors, 1);
     assert_eq!(r.input_tokens, 1_000_000);
-    assert!((r.est_cost_usd - 0.042).abs() < 1e-9);
+    assert!((r.est_cost_usd.unwrap() - 0.042).abs() < 1e-9);
+    assert!(r.to_string().contains("input tokens: 1000000 (about $0.0420 at Jev list price)\n"), "{r}");
     assert_eq!(r.first_seen, 3);
     assert!(r.to_string().contains("ping"));
 }
 
+/// Held back = gate would notify no one: a digest, or a repeat within the episode. An escalate
+/// still notifies someone, so only its repeat counts.
 #[test]
 fn report_counts_avoidable_pings() {
     let s = Store::memory();
     for (identity, kind) in [
         ("id-a", Kind::Ping),
-        ("id-a", Kind::Ping),
+        ("id-a", Kind::Ping), // repeat: held back
         ("id-a", Kind::Resolved),
         ("id-a", Kind::Ping),
-        ("id-b", Kind::Digest),
+        ("id-b", Kind::Digest), // held back
         ("id-b", Kind::Escalate),
+        ("id-c", Kind::Escalate),
+        ("id-c", Kind::Escalate), // repeat: held back
     ] {
         ev_kind_at(&s, identity, kind, T0);
     }
-    let r = build(&s, 0, 0.042, 24 * 3600);
+    let r = build(&s, 0, Some(0.042), 24 * 3600);
     assert_eq!(r.avoidable_pings, 3);
+    assert!(r.to_string().contains("pings gate would hold back (digest or repeat, simulated): 3\n"), "{r}");
 }
 
 #[tokio::test]
@@ -104,7 +111,7 @@ fn report_avoidable_pings_respect_the_repeat_window() {
     ev_kind_at(&s, "id-a", Kind::Ping, T0 + 30 * 86_400); // lost resolved: a new incident, not avoidable
     ev_kind_at(&s, "id-b", Kind::Ping, T0);
     ev_kind_at(&s, "id-b", Kind::Ping, T0 + 3600); // a repeat within 24 h: avoidable
-    assert_eq!(build(&s, 0, 0.042, 24 * 3600).avoidable_pings, 1);
+    assert_eq!(build(&s, 0, Some(0.042), 24 * 3600).avoidable_pings, 1);
 }
 
 #[tokio::test]
@@ -115,4 +122,155 @@ async fn replay_repeat_suppression_is_bounded_by_the_window() {
     ev_kind_at(&s, "id1", Kind::Ping, T0 + 30 * 86_400);
     let (app, _d) = gate_replay_app(&fake, s, || T0 + 31 * 86_400);
     assert_eq!(replay(&app, 0).await, vec![]);
+}
+
+const MIN_TOML: &str = r#"
+[backend]
+url = "https://api.typesafe.ai"
+model = "jev-1.13.0"
+
+[source.probe]
+[source.probe.fields]
+status = { const = "firing" }
+summary = { template = "{probe/name}: {result/eror}" }
+env = { path = "/labels/stage" }
+"#;
+
+/// Runs the real binary on `payload` with a `probe` source, and returns (exit ok, stdout, stderr).
+fn check_source(payload: &str) -> (bool, String, String) {
+    let d = tempfile::tempdir().unwrap();
+    let cfg = d.path().join("keenwake.toml");
+    let body = d.path().join("payload.json");
+    std::fs::write(&cfg, MIN_TOML).unwrap();
+    std::fs::write(&body, payload).unwrap();
+    let (cfg, body) = (cfg.to_str().unwrap(), body.to_str().unwrap());
+    run(&["--config", cfg, "check-source", "--source", "probe", body])
+}
+
+/// Runs the real binary with `args`, and returns (exit ok, stdout, stderr).
+fn run(args: &[&str]) -> (bool, String, String) {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_keenwake")).args(args).output().unwrap();
+    (out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into())
+}
+
+/// A typo in a template key or an env path used to yield "api-health: " and "unknown" silently.
+#[test]
+fn check_source_warns_and_fails_on_references_that_resolve_to_nothing() {
+    let (ok, stdout, stderr) = check_source(r#"{"probe": {"name": "api-health"}, "result": {"error": "timeout"}}"#);
+    assert!(!ok, "a warning must fail check-source\n{stderr}");
+    assert!(stderr.contains("warning: alert 0, field summary: /result/eror resolved to nothing"), "{stderr}");
+    assert!(stderr.contains("warning: alert 0, field env: /labels/stage resolved to nothing"), "{stderr}");
+    assert!(stdout.contains("state sent to the model"), "the extraction is still shown\n{stdout}");
+}
+
+#[test]
+fn check_source_is_quiet_and_succeeds_when_everything_resolves() {
+    let (ok, _, stderr) = check_source(
+        r#"{"probe": {"name": "api-health"}, "result": {"eror": "timeout"}, "labels": {"stage": "prod"}}"#,
+    );
+    assert!(ok, "{stderr}");
+    assert!(!stderr.contains("warning"), "{stderr}");
+}
+
+/// Inserts `n` alerts one minute apart from T0, alternating digest (p=0.12) and ping (p=0.91).
+fn minutes_of_alerts(s: &Store, n: i64) {
+    for i in 0..n {
+        let (kind, p) = if i % 2 == 0 { (Kind::Digest, 0.12) } else { (Kind::Ping, 0.91) };
+        let at = T0 + i * 60;
+        let seq = s.insert_event(&Alert { summary: format!("alert {i}"), ..alert(Status::Firing) }, at);
+        s.insert_decision(&DecisionRow { probability: Some(p), ..decision(seq, at, kind) });
+    }
+}
+
+/// Counts alone do not tell which alerts would have been held back: the text report lists them.
+#[test]
+fn report_text_lists_each_decision_oldest_first() {
+    let s = Store::memory();
+    minutes_of_alerts(&s, 2);
+    let s = build(&s, 0, Some(0.042), 24 * 3600).to_string();
+    let a = s.find("2027-01-15 08:00 UTC  digest     p=0.12  alert 0").expect(&s);
+    let b = s.find("2027-01-15 08:01 UTC  ping       p=0.91  alert 1").expect(&s);
+    assert!(a < b, "most recent last\n{s}");
+    assert!(!s.contains("more, use --json"), "{s}");
+}
+
+#[test]
+fn report_text_keeps_the_last_30_decisions() {
+    let s = Store::memory();
+    minutes_of_alerts(&s, 32);
+    let s = build(&s, 0, Some(0.042), 24 * 3600).to_string();
+    assert!(s.contains("  ... 2 more, use --json\n"), "{s}");
+    assert!(!s.contains("  alert 1\n"), "{s}");
+    assert!(s.contains("  alert 2\n"), "{s}");
+    assert!(s.contains("  alert 31\n"), "{s}");
+}
+
+#[test]
+fn report_json_rows_keep_their_fields() {
+    let s = Store::memory();
+    minutes_of_alerts(&s, 1);
+    let v = serde_json::to_value(build(&s, 0, Some(0.042), 24 * 3600)).unwrap();
+    let keys: Vec<&String> = v["rows"][0].as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["identity", "kind", "probability", "summary"]);
+}
+
+/// The date is computed without a date crate: a leap day and a non-leap century are the traps.
+#[test]
+fn report_text_dates_are_utc_calendar_dates() {
+    let s = Store::memory();
+    for at in [1_835_481_599, 4_107_542_400] {
+        let seq = s.insert_event(&alert(Status::Firing), at);
+        s.insert_decision(&decision(seq, at, Kind::Untriaged));
+    }
+    let s = build(&s, 0, Some(0.042), 24 * 3600).to_string();
+    assert!(s.contains("  2028-02-29 23:59 UTC  untriaged  p=-     x\n"), "{s}");
+    assert!(s.contains("  2100-03-01 00:00 UTC  untriaged  p=-     x\n"), "{s}");
+}
+
+fn backend(url: &str, model: &str) -> BackendCfg {
+    BackendCfg { url: url.into(), model: model.into(), api_key_env: None, timeout_ms: 2000 }
+}
+
+/// Only Jev has a list price: a Laya or other backend must not show a made-up cost.
+#[test]
+fn cost_is_estimated_only_for_jev() {
+    assert_eq!(list_price_per_mtok(&backend("https://api.typesafe.ai", "jev-1.13.0")), Some(0.042));
+    assert_eq!(list_price_per_mtok(&backend("https://api.typesafe.ai/v1/", "other")), Some(0.042));
+    assert_eq!(list_price_per_mtok(&backend("http://proxy:8080", "jev-1.13.0")), Some(0.042));
+    assert_eq!(list_price_per_mtok(&backend("http://laya:8771", "laya-typed-decisions")), None);
+    assert_eq!(list_price_per_mtok(&backend("http://api.typesafe.ai.evil:1", "laya")), None);
+}
+
+#[test]
+fn report_without_a_price_shows_tokens_but_no_cost() {
+    let s = Store::memory();
+    ev(&s, "a", Kind::Ping, Some(0.9), 1234);
+    let r = build(&s, 0, None, 24 * 3600);
+    assert_eq!(r.est_cost_usd, None);
+    let text = r.to_string();
+    assert!(text.contains("input tokens: 1234\n"), "{text}");
+    assert!(!text.contains('$'), "{text}");
+}
+
+/// "No such file or directory (os error 2)" alone does not say which file: name it.
+#[test]
+fn file_errors_name_the_file() {
+    let d = tempfile::tempdir().unwrap();
+    let missing = d.path().join("nope.toml");
+    let (ok, _, stderr) = run(&["--config", missing.to_str().unwrap(), "report"]);
+    assert!(!ok);
+    assert!(stderr.contains(&format!("cannot read config {}", missing.display())), "{stderr}");
+
+    let cfg = d.path().join("keenwake.toml");
+    let db = d.path().join("no-such-dir").join("keenwake.db");
+    std::fs::write(&cfg, format!("{MIN_TOML}\n[store]\npath = {:?}\n", db.to_str().unwrap())).unwrap();
+    let (ok, _, stderr) = run(&["--config", cfg.to_str().unwrap(), "report"]);
+    assert!(!ok);
+    assert!(stderr.contains(&format!("cannot open store {}", db.display())), "{stderr}");
+
+    let payload = d.path().join("payload.json");
+    let (ok, _, stderr) =
+        run(&["--config", cfg.to_str().unwrap(), "check-source", "--source", "probe", payload.to_str().unwrap()]);
+    assert!(!ok);
+    assert!(stderr.contains(&format!("cannot read payload {}", payload.display())), "{stderr}");
 }
