@@ -2,7 +2,7 @@
 
 use crate::backend::{Backend, SetupError};
 use crate::config::{Config, Mode};
-use crate::decide::{route, Kind, Target};
+use crate::decide::{resolved_target, route, Kind, Target};
 use crate::mapping::extract;
 use crate::metrics::Metrics;
 use crate::output::{message, Sender};
@@ -105,10 +105,9 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
         let p = prepare(&app.store, &app.redactor, alert, now, app.cfg.decision.repeat_window_secs());
         let mode = app.cfg.decision.mode;
         if !p.needs_model {
-            let delivered = if app.cfg.decision.mode == Mode::Gate && p.already_pinged {
-                app.send(Target::Ping, message(Kind::Resolved, &p.alert, None, "", "")).await
-            } else {
-                false
+            let delivered = match resolved_target(&app.cfg.decision, p.floor) {
+                Target::Nothing => false,
+                t => app.send(t, message(Kind::Resolved, &p.alert, None, "", "")).await,
             };
             app.store.insert_decision(&DecisionRow {
                 event_seq: p.event_seq,
@@ -133,12 +132,12 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
                 (None, None, None, format!("not triaged: backend unavailable ({e})"))
             }
         };
-        let r = route(&app.cfg.decision, prob, p.already_pinged);
+        let r = route(&app.cfg.decision, prob, p.floor);
         app.metrics.inc("keenwake_decisions_total", &[("kind", r.kind.as_str())]);
         let delivered = match r.target {
             Target::DigestQueue => {
                 app.store.queue_digest(p.event_seq);
-                false
+                true
             }
             Target::Nothing => false,
             // A verdict is a report on the decision, not a notification to the team.

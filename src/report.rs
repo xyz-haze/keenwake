@@ -1,6 +1,6 @@
 //! Observe-mode report and replay diff.
 
-use crate::decide::{route, Kind};
+use crate::decide::{repeat_floor, route, Kind, Sent, Target};
 use crate::history::{facts, Facts, WINDOW_SECS};
 use crate::server::App;
 use crate::state::sentence;
@@ -57,31 +57,31 @@ pub fn parse_since(s: &str) -> Result<i64, BadSince> {
     })
 }
 
-/// Repeat suppression over simulated decisions: per identity, when the team was last notified
-/// (ping or untriaged) in the still-open episode. The same time-bounded rule as
-/// `Store::episode_pinged`, which only sees decisions `serve` actually delivered.
+/// Repeat suppression over simulated decisions: per identity, the notifications sent in the
+/// still-open episode, fed to the same `decide::repeat_floor` rule `serve` applies to what
+/// `Store::episode_sent` returns.
 struct RepeatSim {
     window: i64,
-    last: HashMap<String, i64>,
+    sent: HashMap<String, Vec<Sent>>,
 }
 
 impl RepeatSim {
     fn new(window: i64) -> RepeatSim {
-        RepeatSim { window, last: HashMap::new() }
+        RepeatSim { window, sent: HashMap::new() }
     }
 
     /// A resolved event ends the episode.
     fn resolved(&mut self, identity: &str) {
-        self.last.remove(identity);
+        self.sent.remove(identity);
     }
 
-    /// True if a notification at `at` would repeat one sent within the window.
-    fn suppresses(&self, identity: &str, at: i64) -> bool {
-        self.last.get(identity).is_some_and(|&t| t >= at.saturating_sub(self.window))
+    /// `repeat_floor` for a decision about `identity` at `at`.
+    fn floor(&self, identity: &str, at: i64) -> Option<Kind> {
+        repeat_floor(self.sent.get(identity).map_or(&[], Vec::as_slice), at, self.window)
     }
 
-    fn notified(&mut self, identity: &str, at: i64) {
-        self.last.insert(identity.to_string(), at);
+    fn notified(&mut self, identity: &str, at: i64, kind: Kind) {
+        self.sent.entry(identity.to_string()).or_default().push(Sent { at, kind });
     }
 }
 
@@ -116,10 +116,10 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
             Kind::Resolved => sim.resolved(id),
             Kind::Digest | Kind::Escalate => avoidable += 1,
             Kind::Ping | Kind::Untriaged => {
-                if sim.suppresses(id, e.received_at) {
+                if sim.floor(id, e.received_at).is_some_and(|f| f.urgency() >= d.kind.urgency()) {
                     avoidable += 1;
                 } else {
-                    sim.notified(id, e.received_at);
+                    sim.notified(id, e.received_at, d.kind);
                 }
             }
             Kind::Repeat => {}
@@ -164,9 +164,9 @@ impl fmt::Display for Report {
 
 /// Re-decides stored events with the current config and backend. This replays **decisions**,
 /// not mapping: a change to a source's field extraction does not apply to already-stored events.
-/// Repeat suppression (an episode's second ping within `decision.repeat_window_hours`) is
+/// Repeat suppression (a notification no more urgent than one already sent in the episode) is
 /// simulated purely from the kinds this replay itself produces, per identity, in seq order, using
-/// event times — never from `Store::episode_pinged`, whose `delivered` flag observe-mode history
+/// event times — never from `Store::episode_sent`, whose `delivered` flag observe-mode history
 /// (the usual source for a replay) never sets.
 pub async fn replay(app: &App, since: i64) -> Vec<Change> {
     let mut changed = Vec::new();
@@ -179,10 +179,11 @@ pub async fn replay(app: &App, since: i64) -> Vec<Change> {
         }
         let state = sentence(&e.alert, &stored_facts(&app.store, &e));
         let p = app.backend.ask(&state, &app.cfg.question).await.ok().map(|a| a.probability);
-        let new = route(&app.cfg.decision, p, sim.suppresses(id, e.received_at)).kind;
-        if matches!(new, Kind::Ping | Kind::Untriaged) {
-            sim.notified(id, e.received_at);
+        let r = route(&app.cfg.decision, p, sim.floor(id, e.received_at));
+        if matches!(r.target, Target::Ping | Target::Escalate | Target::DigestQueue) {
+            sim.notified(id, e.received_at, r.kind);
         }
+        let new = r.kind;
         if new != old.kind {
             changed.push(Change { seq: e.seq, summary: e.alert.summary, old: old.kind, new });
         }

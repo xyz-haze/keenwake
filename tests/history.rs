@@ -2,7 +2,7 @@ mod common;
 
 use common::{alert, decision};
 use keenwake::config::Mode;
-use keenwake::decide::Kind;
+use keenwake::decide::{Kind, Sent};
 use keenwake::history::facts;
 use keenwake::mapping::Status;
 use keenwake::store::{DecisionRow, Store};
@@ -63,18 +63,28 @@ fn old_episodes_fall_out_of_the_window() {
 }
 
 #[test]
-fn episode_pinged_sees_only_the_open_episode() {
+fn episode_sent_sees_only_the_open_episode() {
     let s = Store::memory();
     let t0 = 1_800_000_000;
     let e1 = s.insert_event(&alert(Status::Firing), t0);
     s.insert_decision(&DecisionRow { mode: Mode::Gate, delivered: true, ..decision(e1, t0, Kind::Ping) });
     let e2 = s.insert_event(&alert(Status::Firing), t0 + MIN);
-    assert!(s.episode_pinged("id", e2, 0));
-    assert!(s.episode_pinged("id", e2, t0), "a ping decided exactly at the window start still counts");
-    assert!(!s.episode_pinged("id", e2, t0 + 1), "a ping decided before the window no longer counts");
-    s.insert_event(&alert(Status::Resolved), t0 + 2 * MIN);
+    s.insert_decision(&DecisionRow { mode: Mode::Gate, delivered: true, ..decision(e2, t0 + MIN, Kind::Digest) });
+    let e3 = s.insert_event(&alert(Status::Firing), t0 + 2 * MIN);
+    s.insert_decision(&DecisionRow {
+        mode: Mode::Gate,
+        delivered: false,
+        ..decision(e3, t0 + 2 * MIN, Kind::Escalate)
+    });
     let e4 = s.insert_event(&alert(Status::Firing), t0 + 3 * MIN);
-    assert!(!s.episode_pinged("id", e4, 0), "a new episode starts clean");
+    let ping = Sent { at: t0, kind: Kind::Ping };
+    let digest = Sent { at: t0 + MIN, kind: Kind::Digest };
+    assert_eq!(s.episode_sent("id", e4, 0), vec![ping, digest], "an undelivered escalate was not sent");
+    assert_eq!(s.episode_sent("id", e4, t0), vec![ping, digest], "decided exactly at the window start");
+    assert_eq!(s.episode_sent("id", e4, t0 + MIN + 1), vec![digest], "only a digest counts before the window");
+    s.insert_event(&alert(Status::Resolved), t0 + 4 * MIN);
+    let e6 = s.insert_event(&alert(Status::Firing), t0 + 5 * MIN);
+    assert!(s.episode_sent("id", e6, 0).is_empty(), "a new episode starts clean");
 }
 
 #[test]

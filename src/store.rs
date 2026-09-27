@@ -1,7 +1,7 @@
 //! SQLite store: events and decisions, ordered by seq, times in UTC unix seconds.
 
 use crate::config::Mode;
-use crate::decide::Kind;
+use crate::decide::{Kind, Sent};
 use crate::mapping::{Alert, Status};
 use rusqlite::types::Type;
 use rusqlite::{params, Connection, OptionalExtension, Params, Row, Statement};
@@ -27,6 +27,7 @@ pub struct DecisionRow {
     pub kind: Kind,
     pub probability: Option<f64>,
     pub reason: String,
+    /// The team got it: a webhook that answered 2xx, or, for a digest, an entry queued.
     pub delivered: bool,
     pub backend_ms: Option<i64>,
     pub input_tokens: Option<i64>,
@@ -180,20 +181,25 @@ impl Store {
             .collect()
     }
 
-    /// True if the episode open at `before_seq` already had a delivered ping or untriaged
-    /// notification (both reach the team the same way a ping does) decided at or after `since`.
-    /// The time bound keeps a lost `resolved` from silencing the identity forever.
-    pub fn episode_pinged(&self, identity: &str, before_seq: i64, since: i64) -> bool {
+    /// The notifications the episode open at `before_seq` already sent (`delivered = 1`), for
+    /// `decide::repeat_floor`. Only a digest entry older than `since` can still count, so older
+    /// ones of other kinds are left out.
+    pub fn episode_sent(&self, identity: &str, before_seq: i64, since: i64) -> Vec<Sent> {
         let c = self.c();
-        c.query_row(
-            "SELECT EXISTS(SELECT 1 FROM decisions d JOIN events e ON e.seq = d.event_seq
+        let mut st = c
+            .prepare(
+                "SELECT d.decided_at, d.kind FROM decisions d JOIN events e ON e.seq = d.event_seq
              WHERE e.identity = ?1 AND e.seq < ?2 AND e.seq > COALESCE(
                (SELECT MAX(seq) FROM events WHERE identity = ?1 AND seq < ?2 AND status = 'resolved'), 0)
-             AND d.kind IN ('ping', 'untriaged') AND d.delivered = 1 AND d.decided_at >= ?3)",
-            params![identity, before_seq, since],
-            |r| r.get(0),
-        )
-        .expect("query")
+             AND d.kind IN ('ping', 'untriaged', 'escalate', 'digest') AND d.delivered = 1
+             AND (d.decided_at >= ?3 OR d.kind = 'digest')
+             ORDER BY d.seq",
+            )
+            .expect("prepare");
+        st.query_map(params![identity, before_seq, since], |r| Ok(Sent { at: r.get(0)?, kind: named(r, 1)? }))
+            .expect("query")
+            .map(|r| r.expect("row"))
+            .collect()
     }
 
     pub fn queue_digest(&self, event_seq: i64) {

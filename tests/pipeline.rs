@@ -3,7 +3,7 @@ mod common;
 use common::{alert, config, decision};
 use keenwake::backend::request_body;
 use keenwake::config::{Config, Mode, Question};
-use keenwake::decide::{route, Kind, Target};
+use keenwake::decide::{repeat_floor, route, Kind, Target};
 use keenwake::mapping::{extract, Alert, Status};
 use keenwake::pipeline::prepare;
 use keenwake::redact::{Pattern, Redactor};
@@ -20,20 +20,26 @@ fn red() -> Redactor {
 }
 
 /// Prepares an alert at `at`, and if it needs the model, routes it with probability `p` and
-/// stores the decision the way `serve` would (a ping or untriaged in gate is delivered).
+/// stores the decision the way `serve` would (every notification in gate is delivered).
 fn decide_and_store(c: &Config, s: &Store, status: Status, at: i64, p: f64) -> Option<(i64, Kind)> {
     let pr = prepare(s, &red(), alert(status), at, WINDOW);
     if !pr.needs_model {
         return None;
     }
-    let r = route(&c.decision, Some(p), pr.already_pinged);
+    let r = route(&c.decision, Some(p), pr.floor);
     s.insert_decision(&DecisionRow {
         mode: Mode::Gate,
         probability: Some(p),
-        delivered: r.target == Target::Ping,
+        delivered: r.target != Target::Nothing,
         ..decision(pr.event_seq, at, r.kind)
     });
     Some((pr.event_seq, r.kind))
+}
+
+/// The repeat floor `serve` saw when `ev` arrived, recomputed from the store.
+fn floor_at(s: &Store, ev: &keenwake::store::Event) -> Option<Kind> {
+    let sent = s.episode_sent(&ev.alert.identity, ev.seq, ev.received_at - WINDOW);
+    repeat_floor(&sent, ev.received_at, WINDOW)
 }
 
 #[test]
@@ -57,7 +63,7 @@ fn resolved_needs_no_model() {
 fn resolved_for_unknown_identity_is_harmless() {
     let s = Store::memory();
     let p = prepare(&s, &red(), alert(Status::Resolved), 1_800_000_000, WINDOW);
-    assert!(!s.episode_pinged("id", p.event_seq, 0));
+    assert!(s.episode_sent("id", p.event_seq, 0).is_empty());
     assert_eq!(s.events_since(0).len(), 1);
 }
 
@@ -66,7 +72,7 @@ fn repeated_firing_after_ping_is_repeat_in_gate() {
     let s = Store::memory();
     let c = cfg(Mode::Gate);
     let p1 = prepare(&s, &red(), alert(Status::Firing), 1_800_000_000, WINDOW);
-    let r1 = route(&c.decision, Some(0.9), p1.already_pinged);
+    let r1 = route(&c.decision, Some(0.9), p1.floor);
     assert_eq!(r1.target, Target::Ping);
     s.insert_decision(&DecisionRow {
         mode: Mode::Gate,
@@ -75,8 +81,8 @@ fn repeated_firing_after_ping_is_repeat_in_gate() {
         ..decision(p1.event_seq, 1_800_000_000, Kind::Ping)
     });
     let p2 = prepare(&s, &red(), alert(Status::Firing), 1_800_000_060, WINDOW);
-    assert!(p2.already_pinged);
-    assert_eq!(route(&c.decision, Some(0.9), p2.already_pinged).kind, Kind::Repeat);
+    assert_eq!(p2.floor, Some(Kind::Ping));
+    assert_eq!(route(&c.decision, Some(0.9), p2.floor).kind, Kind::Repeat);
     assert!(p2.state.contains("for 1 minutes so far"));
 }
 
@@ -99,8 +105,8 @@ fn replay_reproduces_repeat() {
 
     for (seq, kind) in &first {
         let ev = s.events_since(0).into_iter().find(|e| e.seq == *seq).unwrap();
-        let already_pinged = s.episode_pinged(&ev.alert.identity, *seq, ev.received_at - WINDOW);
-        assert_eq!(route(&c.decision, Some(p), already_pinged).kind, *kind);
+        let floor = floor_at(&s, &ev);
+        assert_eq!(route(&c.decision, Some(p), floor).kind, *kind);
     }
 }
 
@@ -139,9 +145,8 @@ proptest! {
         }
         for (seq, kind) in first {
             let ev = s.events_since(0).into_iter().find(|e| e.seq == seq).unwrap();
-            let already_pinged = s.episode_pinged(&ev.alert.identity, seq, ev.received_at - WINDOW);
             let p = ps[(seq - 1) as usize].0;
-            prop_assert_eq!(route(&c.decision, Some(p), already_pinged).kind, kind);
+            prop_assert_eq!(route(&c.decision, Some(p), floor_at(&s, &ev)).kind, kind);
         }
     }
 }

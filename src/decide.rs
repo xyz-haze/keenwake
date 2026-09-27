@@ -28,7 +28,8 @@ impl Kind {
             Kind::Resolved => "resolved",
         }
     }
-    /// Ranks what `classify` returns, least urgent first.
+    /// Ranks what `classify` returns, least urgent first. An untriaged decision ranks with a ping:
+    /// when in doubt, ping.
     pub fn urgency(self) -> u8 {
         match self {
             Kind::Digest => 0,
@@ -79,8 +80,27 @@ pub fn classify(p: f64, ping: f64, digest: f64) -> Kind {
     }
 }
 
-/// `probability` is `None` when the backend gave no usable answer.
-pub fn route(d: &DecisionCfg, probability: Option<f64>, already_pinged: bool) -> Routing {
+/// A notification the team already got in the open episode: a delivered ping, untriaged or
+/// escalate, or a digest entry queued.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sent {
+    pub at: i64,
+    pub kind: Kind,
+}
+
+/// The most urgent notification of the open episode that still counts at `now`, if any. A ping,
+/// untriaged or escalate counts for `window` seconds, so a lost `resolved` cannot silence an
+/// identity forever; a digest entry counts for the whole episode, so it is queued only once.
+pub fn repeat_floor(sent: &[Sent], now: i64, window: i64) -> Option<Kind> {
+    sent.iter()
+        .filter(|s| s.kind == Kind::Digest || s.at >= now.saturating_sub(window))
+        .map(|s| s.kind)
+        .max_by_key(|k| k.urgency())
+}
+
+/// `probability` is `None` when the backend gave no usable answer. `floor` is `repeat_floor` of
+/// the episode: in gate, a decision no more urgent than it becomes a `Repeat`, sent nowhere.
+pub fn route(d: &DecisionCfg, probability: Option<f64>, floor: Option<Kind>) -> Routing {
     let kind = match probability {
         Some(p) => classify(p, d.ping, d.digest),
         None => Kind::Untriaged,
@@ -88,8 +108,7 @@ pub fn route(d: &DecisionCfg, probability: Option<f64>, already_pinged: bool) ->
     if d.mode == Mode::Observe {
         return Routing { kind, target: Target::Verdict };
     }
-    let wants_ping = kind == Kind::Ping || (kind == Kind::Untriaged && d.on_error == OnError::Ping);
-    if already_pinged && (wants_ping || kind == Kind::Untriaged) {
+    if floor.is_some_and(|f| kind.urgency() <= f.urgency()) {
         return Routing { kind: Kind::Repeat, target: Target::Nothing };
     }
     let target = match kind {
@@ -100,4 +119,14 @@ pub fn route(d: &DecisionCfg, probability: Option<f64>, already_pinged: bool) ->
         Kind::Untriaged | Kind::Repeat | Kind::Resolved => Target::Nothing,
     };
     Routing { kind, target }
+}
+
+/// Where a `resolved` event goes: in gate, to the output that carried the episode's most urgent
+/// notification still within the window. A digest-only episode gets no resolved message.
+pub fn resolved_target(d: &DecisionCfg, floor: Option<Kind>) -> Target {
+    match (d.mode, floor) {
+        (Mode::Gate, Some(Kind::Ping | Kind::Untriaged)) => Target::Ping,
+        (Mode::Gate, Some(Kind::Escalate)) => Target::Escalate,
+        _ => Target::Nothing,
+    }
 }

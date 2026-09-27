@@ -1,6 +1,7 @@
 //! The first half of `serve`'s decision path: store the alert, then compute its history and the
 //! state sent to the model. `decide::route` is the second half.
 
+use crate::decide::{repeat_floor, Kind};
 use crate::history::{facts, Facts, WINDOW_SECS};
 use crate::mapping::{Alert, Status};
 use crate::redact::Redactor;
@@ -13,11 +14,12 @@ pub struct Prepared {
     pub alert: Alert,
     pub facts: Facts,
     pub state: String,
-    pub already_pinged: bool,
+    /// `decide::repeat_floor` of the open episode, as `route` and `resolved_target` take it.
+    pub floor: Option<Kind>,
     pub needs_model: bool,
 }
 
-/// `repeat_window` (seconds): how far back a delivered ping still counts as "already pinged".
+/// `repeat_window` (seconds): how far back a delivered notification still counts as sent.
 pub fn prepare(store: &Store, redactor: &Redactor, mut alert: Alert, now: i64, repeat_window: i64) -> Prepared {
     alert.summary = redactor.clean(&alert.summary);
     alert.details = redactor.clean(&alert.details);
@@ -25,9 +27,10 @@ pub fn prepare(store: &Store, redactor: &Redactor, mut alert: Alert, now: i64, r
     let before = store.events_for(&alert.identity, now - WINDOW_SECS, event_seq);
     let f = facts(&before, &alert, now);
     let state = sentence(&alert, &f);
-    let already_pinged = store.episode_pinged(&alert.identity, event_seq, now.saturating_sub(repeat_window));
+    let since = now.saturating_sub(repeat_window);
+    let floor = repeat_floor(&store.episode_sent(&alert.identity, event_seq, since), now, repeat_window);
     let needs_model = alert.status == Status::Firing;
-    Prepared { event_seq, alert, facts: f, state, already_pinged, needs_model }
+    Prepared { event_seq, alert, facts: f, state, floor, needs_model }
 }
 
 pub fn facts_line(f: &Facts) -> String {
