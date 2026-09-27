@@ -1,0 +1,11 @@
+# Overlay for the hosted Jev backend: `KEENWAKE_DEMO_BACKEND=jev ./e2e.sh` adds it to the project.
+# keenwake reads keenwake.jev.toml and no longer waits for Laya, which is left out (behind a
+# profile nobody enables) so its checkpoint is neither downloaded nor loaded.
+services:
+  laya:
+    profiles: [laya]
+  keenwake:
+    volumes: !override ["./keenwake.jev.toml:/etc/keenwake/keenwake.toml:ro", "keenwake-data:/data"]
+    # The key is forwarded by name from the caller's environment: its value never lands in a file.
+    environment: [TYPESAFE_API_KEY]
+    depends_on: !reset {}
