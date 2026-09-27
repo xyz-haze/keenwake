@@ -17,11 +17,12 @@ on_error = "{on_error}"
 [outputs]
 ping = "{}/ping"
 escalate = "{}/escalate"
+digest = "{}/digest"
 verdict = "{}/verdict"
 [store]
 undelivered = "{}"
 {extra}
-"#, backend.url, out.url, out.url, out.url, dir.path().join("u.jsonl").display());
+"#, backend.url, out.url, out.url, out.url, out.url, dir.path().join("u.jsonl").display());
     let cfg = Config::from_toml(&toml).unwrap();
     (App::new(cfg, alertsift::store::Store::memory(), || 1_800_000_000).unwrap(), dir)
 }
@@ -96,6 +97,18 @@ async fn repeat_notification_does_not_ping_twice_and_resolved_follows_ping() {
 }
 
 #[tokio::test]
+async fn repeat_untriaged_does_not_ping_twice_and_resolved_follows() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = app("gate", "ping", &be, &out, "").await;
+    handle_body(&a, "grafana", &grafana("fail500", "f1", "firing")).await;
+    handle_body(&a, "grafana", &grafana("fail500", "f1", "firing")).await;
+    handle_body(&a, "grafana", &grafana("fail500", "f1", "resolved")).await;
+    let kinds: Vec<_> = out.bodies().iter().map(|b| b["alertsift"]["decision"].as_str().unwrap().to_string()).collect();
+    assert_eq!(kinds, vec!["untriaged", "resolved"]);
+}
+
+#[tokio::test]
 async fn unknown_source_and_garbage() {
     let be = FakeHttp::start(system_one_from_state()).await;
     let out = FakeHttp::start(sink()).await;
@@ -122,6 +135,40 @@ async fn http_router_limits_body_size() {
     assert_eq!(resp.status().as_u16(), 413);
     let resp = r.oneshot(Request::get("/healthz").body(Body::empty()).unwrap()).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
+}
+
+#[tokio::test]
+async fn hook_replies_before_a_slow_backend_finishes() {
+    use axum::body::Body;
+    use axum::http::Request;
+    use std::time::{Duration, Instant};
+    use tower::ServiceExt;
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let dir = tempfile::tempdir().unwrap();
+    // A generously long backend timeout: if the handler awaited the backend inline, this
+    // request would take the full 5s the fake backend sleeps for.
+    let toml = format!(r#"
+[backend]
+url = "{}"
+model = "m-1"
+timeout_ms = 10000
+[decision]
+mode = "observe"
+[outputs]
+verdict = "{}/verdict"
+[store]
+undelivered = "{}"
+"#, be.url, out.url, dir.path().join("u.jsonl").display());
+    let cfg = Config::from_toml(&toml).unwrap();
+    let a = App::new(cfg, alertsift::store::Store::memory(), || 1_800_000_000).unwrap();
+    let r = alertsift::server::router(Arc::new(a));
+    let body = grafana("slow", "f1", "firing");
+    let t = Instant::now();
+    let resp = r.oneshot(Request::post("/hook/grafana").body(Body::from(body)).unwrap()).await.unwrap();
+    let elapsed = t.elapsed();
+    assert_eq!(resp.status().as_u16(), 200);
+    assert!(elapsed < Duration::from_secs(1), "took {elapsed:?}");
 }
 
 #[test]

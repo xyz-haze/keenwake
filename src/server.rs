@@ -68,6 +68,7 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
     let alerts = match extract(source, spec, body) {
         Ok(a) => a,
         Err(e) => {
+            eprintln!("alertsift: mapping error from source {source}: {e}");
             app.metrics.inc("alertsift_mapping_errors_total", &[("source", source)]);
             if app.cfg.decision.mode == Mode::Gate {
                 let raw: String = app.redactor.clean(&String::from_utf8_lossy(body)).chars().take(4000).collect();
@@ -113,8 +114,18 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
     200
 }
 
+/// Replies before the alert is processed: the source must not see a slow backend as a reason to
+/// retry-storm. Unknown sources are the one case checked synchronously, since that reply (404) is
+/// immediate anyway and must still bump the unknown-source metric.
 async fn hook(State(app): State<Arc<App>>, Path(source): Path<String>, body: Bytes) -> StatusCode {
-    StatusCode::from_u16(handle_body(&app, &source, &body).await).unwrap_or(StatusCode::OK)
+    if !app.cfg.sources.contains_key(&source) {
+        app.metrics.inc("alertsift_unknown_source_total", &[]);
+        return StatusCode::NOT_FOUND;
+    }
+    tokio::spawn(async move {
+        handle_body(&app, &source, &body).await;
+    });
+    StatusCode::OK
 }
 
 pub fn router(app: Arc<App>) -> Router {

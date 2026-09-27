@@ -288,6 +288,12 @@ impl Config {
         if d.mode == Mode::Gate && self.outputs.ping.is_none() {
             return Err(invalid("mode = \"gate\" requires outputs.ping"));
         }
+        if d.mode == Mode::Gate && self.outputs.escalate.is_none() {
+            return Err(invalid("mode = \"gate\" requires outputs.escalate"));
+        }
+        if d.mode == Mode::Gate && self.outputs.digest.is_none() {
+            return Err(invalid("mode = \"gate\" requires outputs.digest"));
+        }
         for p in &self.redact.patterns {
             if !["email", "ip", "token"].contains(&p.as_str()) {
                 return Err(invalid(format!("redact.patterns: unknown pattern {p:?}")));

@@ -8,7 +8,9 @@ use alertsift::store::{DecisionRow, Store};
 use proptest::prelude::*;
 
 fn cfg(mode: &str) -> Config {
-    Config::from_toml(&format!("[backend]\nurl='http://x'\nmodel='m-1'\n[decision]\nmode='{mode}'\n[outputs]\nping='http://p'\n")).unwrap()
+    Config::from_toml(&format!(
+        "[backend]\nurl='http://x'\nmodel='m-1'\n[decision]\nmode='{mode}'\n[outputs]\nping='http://p'\nescalate='http://e'\ndigest='http://d'\n"
+    )).unwrap()
 }
 fn red() -> Redactor { Redactor::new(&["email".into(), "ip".into(), "token".into()]) }
 fn alert(status: Status) -> Alert {

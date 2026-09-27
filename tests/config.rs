@@ -42,6 +42,18 @@ fn gate_requires_a_ping_output() {
 }
 
 #[test]
+fn gate_requires_an_escalate_output() {
+    let bad = format!("{MIN}\n[decision]\nmode = \"gate\"\n[outputs]\nping = \"http://x/ping\"\ndigest = \"http://x/digest\"\n");
+    assert!(Config::from_toml(&bad).unwrap_err().to_string().contains("outputs.escalate"));
+}
+
+#[test]
+fn gate_requires_a_digest_output() {
+    let bad = format!("{MIN}\n[decision]\nmode = \"gate\"\n[outputs]\nping = \"http://x/ping\"\nescalate = \"http://x/escalate\"\n");
+    assert!(Config::from_toml(&bad).unwrap_err().to_string().contains("outputs.digest"));
+}
+
+#[test]
 fn bad_digest_time_is_refused() {
     let bad = format!("{MIN}\n[decision]\ndigest_at = \"25:00\"\n");
     assert!(Config::from_toml(&bad).is_err());

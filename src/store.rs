@@ -124,14 +124,15 @@ impl Store {
         st.query_map(params![since], |r| Ok((event(r)?, decision(r, 9)?))).expect("query").map(|r| r.expect("row")).collect()
     }
 
-    /// True if the episode open at `before_seq` already had a delivered ping.
+    /// True if the episode open at `before_seq` already had a delivered ping or untriaged
+    /// notification (both reach the team the same way a ping does).
     pub fn episode_pinged(&self, identity: &str, before_seq: i64) -> bool {
         let c = self.c();
         let start: Option<i64> = c.query_row(
             "SELECT COALESCE(MAX(seq), 0) FROM events WHERE identity = ?1 AND seq < ?2 AND status = 'resolved'",
             params![identity, before_seq], |r| r.get(0)).optional().expect("query");
         c.query_row("SELECT EXISTS(SELECT 1 FROM decisions d JOIN events e ON e.seq = d.event_seq
-                     WHERE e.identity = ?1 AND e.seq > ?2 AND e.seq < ?3 AND d.kind = 'ping' AND d.delivered = 1)",
+                     WHERE e.identity = ?1 AND e.seq > ?2 AND e.seq < ?3 AND d.kind IN ('ping', 'untriaged') AND d.delivered = 1)",
             params![identity, start.unwrap_or(0), before_seq], |r| r.get::<_, i64>(0)).expect("query") == 1
     }
 

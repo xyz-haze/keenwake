@@ -25,5 +25,7 @@ pub async fn tick(app: &App, now: i64) -> bool {
             "identity": e.alert.identity, "summary": e.alert.summary, "env": e.alert.env, "severity": e.alert.severity,
             "received_at": e.received_at})).collect::<Vec<_>>()},
     });
-    app.sender.post(url, &body).await
+    let ok = app.sender.post(url, &body).await;
+    if !ok { app.metrics.inc("alertsift_undelivered_total", &[]); }
+    ok
 }
