@@ -7,10 +7,11 @@
 //!
 //! `episodes_7d` counts episodes whose start is on or after `current_at - WINDOW_SECS`, excluding
 //! the current one (the episode, if any, still open when `current` arrives — there is at most one,
-//! since episodes are sequential per identity). `resolved_7d` is how many of those ended. Both are
-//! counted from the same in-window, ended-episode list, so an episode that started before the
-//! window but ended inside it counts toward neither. `median_minutes` is the median duration of
-//! those ended episodes, rounded down; for an even count, the lower of the two middle values.
+//! since episodes are sequential per identity). Only ended episodes are counted, so an episode that
+//! started before the window but ended inside it does not count. Whether an episode ended on its own
+//! or because a human fixed it is unknowable here: both look like the same `resolved` event.
+//! `median_minutes` is the median duration of those ended episodes, rounded down; for an even
+//! count, the lower of the two middle values. It is `None` exactly when `episodes_7d` is 0.
 //! `minutes` is, for the current event, minutes since the *true* start of its still-open episode
 //! (0 if none is open, i.e. it opens now), even when that start lies outside the window.
 
@@ -25,7 +26,6 @@ pub struct Facts {
     pub firing: bool,
     pub minutes: i64,
     pub episodes_7d: u32,
-    pub resolved_7d: u32,
     pub median_minutes: Option<i64>,
 }
 
@@ -57,13 +57,5 @@ pub fn facts(events_before: &[Event], current: &Alert, current_at: i64) -> Facts
     let episodes_7d = u32::try_from(durations.len()).unwrap_or(u32::MAX);
     durations.sort_unstable();
     let median_minutes = if durations.is_empty() { None } else { Some(durations[(durations.len() - 1) / 2]) };
-    Facts {
-        env: current.env.clone(),
-        firing,
-        minutes,
-        episodes_7d,
-        // Only ended episodes are counted, so each of them resolved.
-        resolved_7d: episodes_7d,
-        median_minutes,
-    }
+    Facts { env: current.env.clone(), firing, minutes, episodes_7d, median_minutes }
 }

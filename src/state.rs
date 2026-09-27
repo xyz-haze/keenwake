@@ -1,5 +1,5 @@
 //! The sentence sent to the model: history conclusions first, then the alert text.
-//! Wording mirrors the spike on which Laya reached AUC 0.994; change it only with the slow test.
+//! Wording derives from the spike on which Laya reached AUC 0.994; change it only with the slow test.
 
 use crate::history::Facts;
 use crate::mapping::Alert;
@@ -24,12 +24,14 @@ pub fn sentence(a: &Alert, f: &Facts) -> String {
     } else {
         parts.push(format!("The alert is already resolved after {} minutes.", f.minutes));
     }
-    match (f.episodes_7d, f.median_minutes) {
-        (0, _) => parts.push("This alert has never fired before in the last 7 days.".into()),
-        (n, None) => parts.push(format!("It fired {n} times in the last 7 days and never resolved on its own.")),
-        (n, Some(med)) => {
-            let pct = (f.resolved_7d * 100) / n;
-            parts.push(format!("It fired {n} times in the last 7 days and resolved on its own {pct}% of the time, usually within about {med} minutes."));
+    // No claim about *how* past episodes ended: a self-resolution and a human fix look the same.
+    match f.median_minutes {
+        None => parts.push("This alert has never fired before in the last 7 days.".into()),
+        Some(med) => {
+            let n = f.episodes_7d;
+            parts.push(format!(
+                "It fired {n} times in the last 7 days, and each time it ended, usually within about {med} minutes."
+            ));
             if f.firing {
                 if f.minutes > 3 * med {
                     parts.push("This time it has lasted much longer than usual.".into());

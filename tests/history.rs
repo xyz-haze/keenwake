@@ -27,7 +27,6 @@ fn counts_episodes_and_median() {
     let before = s.events_for("id", now - 7 * 24 * 3600, seq);
     let f = facts(&before, &alert(Status::Firing), now);
     assert_eq!(f.episodes_7d, 3);
-    assert_eq!(f.resolved_7d, 3);
     assert_eq!(f.median_minutes, Some(4));
     assert_eq!(f.minutes, 0);
     assert!(f.firing);
@@ -48,7 +47,7 @@ fn repeated_firing_measures_time_since_episode_start() {
 #[test]
 fn first_time_has_no_history() {
     let f = facts(&[], &alert(Status::Firing), 1_800_000_000);
-    assert_eq!((f.episodes_7d, f.resolved_7d, f.median_minutes), (0, 0, None));
+    assert_eq!((f.episodes_7d, f.median_minutes), (0, None));
 }
 
 #[test]
@@ -104,7 +103,6 @@ fn episode_straddling_the_window_is_not_counted() {
     let before = s.events_for("id", now - 7 * DAY, seq);
     let f = facts(&before, &alert(Status::Firing), now);
     assert_eq!(f.episodes_7d, 0);
-    assert_eq!(f.resolved_7d, 0);
     assert_eq!(f.median_minutes, None);
 }
 
@@ -137,7 +135,7 @@ fn even_count_median_is_lower_middle() {
 
 proptest! {
     #[test]
-    fn resolved_never_exceeds_episodes(ops in prop::collection::vec((any::<bool>(), 1i64..600), 0..60)) {
+    fn median_exists_exactly_when_episodes_do(ops in prop::collection::vec((any::<bool>(), 1i64..600), 0..60)) {
         let s = Store::memory();
         let mut t = 1_800_000_000;
         for (firing, gap) in &ops {
@@ -147,7 +145,8 @@ proptest! {
         t += 1;
         let seq = s.insert_event(&alert(Status::Firing), t);
         let f = facts(&s.events_for("id", t - 7 * 24 * 3600, seq), &alert(Status::Firing), t);
-        prop_assert!(f.resolved_7d <= f.episodes_7d);
+        // `state::sentence` relies on this: there is no "fired, but no median" case.
+        prop_assert_eq!(f.median_minutes.is_some(), f.episodes_7d > 0);
         prop_assert!(f.minutes >= 0);
         if let Some(m) = f.median_minutes { prop_assert!(m >= 0); }
     }

@@ -35,9 +35,8 @@ Rules the code must never break. Each one has a test; the test name is given.
    `tests/pipeline.rs::resolved_needs_no_model`,
    `tests/server.rs::repeat_notification_does_not_ping_twice_and_resolved_follows_ping`
    (the backend receives the two firings, never the resolved).
-   `tests/history.rs::resolved_never_exceeds_episodes` also exists, but it holds by
-   construction: `resolved_7d` and `episodes_7d` are counted from the same list of ended
-   episodes, so the property cannot fail as the code is written.
+   `tests/history.rs::median_exists_exactly_when_episodes_do` checks that the history sentence
+   never has a past episode without a duration to report.
 
 6. **Replay.** Same config and same deterministic backend give the same decisions as the ones
    already stored. The shipped `replay` (the `keenwake replay` command), run on a gate history
@@ -48,7 +47,7 @@ Rules the code must never break. Each one has a test; the test name is given.
 ## A known gap these invariants don't cover
 
 keenwake has no way to tell whether an alert resolved on its own or because a human intervened
-— both look like the same `resolved` event. The "resolved on its own X% of the time" figure in
-the sentence sent to the model (see `src/state.rs`) therefore counts every resolution, not just
-the self-healing ones. This is a real limitation of the history signal, not a bug: fixing it
-would need a way to distinguish the two, which no alerting tool keenwake talks to reports today.
+— both look like the same `resolved` event. The sentence sent to the model (see `src/state.rs`)
+therefore only says how often the alert fired and how long its episodes usually lasted, never
+how they ended. Fixing this would need a way to distinguish the two, which no alerting tool
+keenwake talks to reports today.

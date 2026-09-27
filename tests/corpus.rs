@@ -48,14 +48,15 @@ async fn corpus_auc_stays_above_095() {
         if r["status"] != "firing" {
             continue;
         }
+        // Only Facts `history::facts` can produce: no median without a past episode. The corpus
+        // `ratio` field is ignored, since the sentence no longer states a resolved fraction.
         let episodes = r["episodes"].as_u64().unwrap() as u32;
         let f = Facts {
             env: r["env"].as_str().unwrap().into(),
             firing: true,
             minutes: r["minutes"].as_i64().unwrap(),
             episodes_7d: episodes,
-            resolved_7d: (episodes as f64 * r["ratio"].as_f64().unwrap()).round() as u32,
-            median_minutes: r["median"].as_i64(),
+            median_minutes: r["median"].as_i64().filter(|_| episodes > 0),
         };
         let a = Alert {
             source: "corpus".into(),

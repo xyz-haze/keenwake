@@ -31,9 +31,8 @@ pub fn prepare(store: &Store, redactor: &Redactor, mut alert: Alert, now: i64, r
 }
 
 pub fn facts_line(f: &Facts) -> String {
-    match (f.episodes_7d, f.median_minutes) {
-        (0, _) => "first time in 7 days".into(),
-        (n, Some(m)) => format!("{n} times in 7 days, {} resolved, median {m} min", f.resolved_7d),
-        (n, None) => format!("{n} times in 7 days, never resolved"),
+    match f.median_minutes {
+        None => "first time in 7 days".into(),
+        Some(m) => format!("{} times in 7 days, median {m} min", f.episodes_7d),
     }
 }
