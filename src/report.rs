@@ -12,7 +12,12 @@ use std::collections::{BTreeMap, HashMap};
 pub const JEV_USD_PER_MTOK: f64 = 0.042;
 
 #[derive(Debug, Serialize)]
-pub struct ReportRow { pub summary: String, pub identity: String, pub kind: String, pub probability: Option<f64> }
+pub struct ReportRow {
+    pub summary: String,
+    pub identity: String,
+    pub kind: String,
+    pub probability: Option<f64>,
+}
 
 #[derive(Debug, Serialize)]
 pub struct Report {
@@ -55,21 +60,36 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
     let mut out = Vec::new();
     for (e, d) in &rows {
         *by_kind.entry(d.kind.clone()).or_insert(0) += 1;
-        if d.kind == "untriaged" { errors += 1; }
-        if let Some(m) = d.backend_ms { ms.push(m); }
+        if d.kind == "untriaged" {
+            errors += 1;
+        }
+        if let Some(m) = d.backend_ms {
+            ms.push(m);
+        }
         tokens += d.input_tokens.unwrap_or(0);
         let before = store.events_for(&e.alert.identity, e.received_at - WINDOW_SECS, e.seq);
-        if d.kind != "resolved" && facts(&before, &e.alert, e.received_at).episodes_7d == 0 { first_seen += 1; }
+        if d.kind != "resolved" && facts(&before, &e.alert, e.received_at).episodes_7d == 0 {
+            first_seen += 1;
+        }
         let last = pinged.entry(e.alert.identity.clone()).or_insert(None);
         match d.kind.as_str() {
             "resolved" => *last = None,
             "digest" | "escalate" => avoidable += 1,
             "ping" | "untriaged" => {
-                if within(*last, e.received_at, repeat_window) { avoidable += 1; } else { *last = Some(e.received_at); }
+                if within(*last, e.received_at, repeat_window) {
+                    avoidable += 1;
+                } else {
+                    *last = Some(e.received_at);
+                }
             }
             _ => {}
         }
-        out.push(ReportRow { summary: e.alert.summary.clone(), identity: e.alert.identity.clone(), kind: d.kind.clone(), probability: d.probability });
+        out.push(ReportRow {
+            summary: e.alert.summary.clone(),
+            identity: e.alert.identity.clone(),
+            kind: d.kind.clone(),
+            probability: d.probability,
+        });
     }
     ms.sort_unstable();
     Report {
@@ -88,12 +108,19 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
 impl Report {
     pub fn to_text(&self) -> String {
         let mut s = format!("alerts decided: {}\n", self.total);
-        for (k, v) in &self.by_kind { s.push_str(&format!("  {k:<10} {v}\n")); }
+        for (k, v) in &self.by_kind {
+            s.push_str(&format!("  {k:<10} {v}\n"));
+        }
         s.push_str(&format!("first seen in 7 days (decided without history): {}\n", self.first_seen));
         s.push_str(&format!("avoidable pings (simulated gate): {}\n", self.avoidable_pings));
         s.push_str(&format!("backend errors: {}\n", self.backend_errors));
-        if let Some(m) = self.median_backend_ms { s.push_str(&format!("median backend latency: {m} ms\n")); }
-        s.push_str(&format!("input tokens: {} (about ${:.4} at Jev list price)\n", self.input_tokens, self.est_cost_usd));
+        if let Some(m) = self.median_backend_ms {
+            s.push_str(&format!("median backend latency: {m} ms\n"));
+        }
+        s.push_str(&format!(
+            "input tokens: {} (about ${:.4} at Jev list price)\n",
+            self.input_tokens, self.est_cost_usd
+        ));
         s
     }
 }
@@ -124,11 +151,16 @@ pub async fn replay(app: &App, since: i64) -> Vec<(i64, String, String, String)>
             already_pinged: within(*last, e.received_at, window),
             needs_model: true,
         };
-        let outcome = app.backend.ask(&p.state, &app.cfg.question).await.map(|a| a.probability).map_err(|e| e.to_string());
+        let outcome =
+            app.backend.ask(&p.state, &app.cfg.question).await.map(|a| a.probability).map_err(|e| e.to_string());
         let new_kind = finish(&app.cfg, &p, outcome).kind;
-        if matches!(new_kind, Kind::Ping | Kind::Untriaged) { *last = Some(e.received_at); }
+        if matches!(new_kind, Kind::Ping | Kind::Untriaged) {
+            *last = Some(e.received_at);
+        }
         let new = new_kind.as_str().to_string();
-        if new != old.kind { changed.push((e.seq, e.alert.summary.clone(), old.kind.clone(), new)); }
+        if new != old.kind {
+            changed.push((e.seq, e.alert.summary.clone(), old.kind.clone(), new));
+        }
     }
     changed
 }

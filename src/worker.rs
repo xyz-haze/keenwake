@@ -47,10 +47,14 @@ pub async fn run(app: Arc<App>, mut rx: mpsc::Receiver<Job>) {
 pub async fn process(app: &Arc<App>, source: String, body: Bytes) {
     let task = tokio::spawn({
         let (app, source, body) = (app.clone(), source.clone(), body.clone());
-        async move { handle_body(&app, &source, &body).await; }
+        async move {
+            handle_body(&app, &source, &body).await;
+        }
     });
     if let Err(e) = task.await {
-        if !e.is_panic() { return; }
+        if !e.is_panic() {
+            return;
+        }
         eprintln!("keenwake: internal error while processing an alert from source {source}");
         app.metrics.inc("keenwake_internal_errors_total", &[]);
         let text = format!("[untriaged] internal error while processing an alert from {source}");

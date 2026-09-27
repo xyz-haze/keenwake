@@ -1,7 +1,9 @@
-use keenwake::mapping::{extract, default_identity, Fields, FieldSpec, SourceSpec, Status};
+use keenwake::mapping::{default_identity, extract, FieldSpec, Fields, SourceSpec, Status};
 use std::collections::BTreeMap;
 
-fn p(path: &str) -> FieldSpec { FieldSpec::Path { path: path.into(), map: None } }
+fn p(path: &str) -> FieldSpec {
+    FieldSpec::Path { path: path.into(), map: None }
+}
 
 fn grafana_like() -> SourceSpec {
     SourceSpec {
@@ -9,7 +11,10 @@ fn grafana_like() -> SourceSpec {
         fields: Fields {
             status: p("/status"),
             identity: Some(p("/fingerprint")),
-            summary: FieldSpec::FirstOf { first_of: vec!["/annotations/summary".into(), "/labels/alertname".into()], map: None },
+            summary: FieldSpec::FirstOf {
+                first_of: vec!["/annotations/summary".into(), "/labels/alertname".into()],
+                map: None,
+            },
             details: Some(p("/annotations/description")),
             env: Some(p("/labels/env")),
             severity: Some(p("/labels/severity")),
@@ -46,7 +51,10 @@ fn map_translates_status_and_const_fills_env() {
     let spec = SourceSpec {
         alerts: "".into(),
         fields: Fields {
-            status: FieldSpec::Path { path: "/state".into(), map: Some(BTreeMap::from([("KO".into(), "firing".into()), ("OK".into(), "resolved".into())])) },
+            status: FieldSpec::Path {
+                path: "/state".into(),
+                map: Some(BTreeMap::from([("KO".into(), "firing".into()), ("OK".into(), "resolved".into())])),
+            },
             identity: Some(p("/check")),
             summary: FieldSpec::Template { template: "{check} failed: {line}".into() },
             details: None,
@@ -64,19 +72,34 @@ fn map_translates_status_and_const_fills_env() {
 
 #[test]
 fn template_accepts_nested_pointers() {
-    let spec = SourceSpec { alerts: "".into(), fields: Fields {
-        status: FieldSpec::Const { value: "firing".into() }, identity: None,
-        summary: FieldSpec::Template { template: "{labels/alertname} on {/labels/instance}".into() },
-        details: None, env: None, severity: None } };
+    let spec = SourceSpec {
+        alerts: "".into(),
+        fields: Fields {
+            status: FieldSpec::Const { value: "firing".into() },
+            identity: None,
+            summary: FieldSpec::Template { template: "{labels/alertname} on {/labels/instance}".into() },
+            details: None,
+            env: None,
+            severity: None,
+        },
+    };
     let a = &extract("x", &spec, br#"{"labels":{"alertname":"A","instance":"i-1"}}"#).unwrap()[0];
     assert_eq!(a.summary, "A on i-1");
 }
 
 #[test]
 fn non_string_values_are_stringified() {
-    let spec = SourceSpec { alerts: "".into(), fields: Fields {
-        status: FieldSpec::Const { value: "firing".into() }, identity: None,
-        summary: p("/n"), details: Some(p("/b")), env: Some(p("/z")), severity: Some(p("/o")) } };
+    let spec = SourceSpec {
+        alerts: "".into(),
+        fields: Fields {
+            status: FieldSpec::Const { value: "firing".into() },
+            identity: None,
+            summary: p("/n"),
+            details: Some(p("/b")),
+            env: Some(p("/z")),
+            severity: Some(p("/o")),
+        },
+    };
     let a = &extract("x", &spec, br#"{"n":42,"b":true,"z":null,"o":{"k":1}}"#).unwrap()[0];
     assert_eq!(a.summary, "42");
     assert_eq!(a.details, "true");
@@ -86,9 +109,17 @@ fn non_string_values_are_stringified() {
 
 #[test]
 fn bad_status_is_an_error_not_a_guess() {
-    let spec = SourceSpec { alerts: "".into(), fields: Fields {
-        status: p("/status"), identity: None, summary: FieldSpec::Const { value: "s".into() },
-        details: None, env: None, severity: None } };
+    let spec = SourceSpec {
+        alerts: "".into(),
+        fields: Fields {
+            status: p("/status"),
+            identity: None,
+            summary: FieldSpec::Const { value: "s".into() },
+            details: None,
+            env: None,
+            severity: None,
+        },
+    };
     assert!(extract("x", &spec, br#"{"status":"weird"}"#).is_err());
     assert!(extract("x", &spec, br#"{}"#).is_err());
     assert!(extract("x", &spec, b"not json").is_err());
@@ -103,9 +134,17 @@ fn default_identity_ignores_digits() {
 
 #[test]
 fn missing_identity_falls_back_to_default() {
-    let spec = SourceSpec { alerts: "".into(), fields: Fields {
-        status: FieldSpec::Const { value: "firing".into() }, identity: None,
-        summary: FieldSpec::Const { value: "CPU at 92%".into() }, details: None, env: None, severity: None } };
+    let spec = SourceSpec {
+        alerts: "".into(),
+        fields: Fields {
+            status: FieldSpec::Const { value: "firing".into() },
+            identity: None,
+            summary: FieldSpec::Const { value: "CPU at 92%".into() },
+            details: None,
+            env: None,
+            severity: None,
+        },
+    };
     let a = &extract("s", &spec, b"{}").unwrap()[0];
     assert_eq!(a.identity, default_identity("s", "CPU at 92%"));
 }
@@ -119,11 +158,13 @@ fn arb_json() -> impl Strategy<Value = serde_json::Value> {
         any::<i64>().prop_map(serde_json::Value::from),
         ".{0,40}".prop_map(serde_json::Value::from),
     ];
-    leaf.prop_recursive(4, 64, 8, |inner| prop_oneof![
-        prop::collection::vec(inner.clone(), 0..6).prop_map(serde_json::Value::from),
-        prop::collection::btree_map("[a-z/~]{0,8}", inner, 0..6)
-            .prop_map(|m| serde_json::Value::Object(m.into_iter().collect())),
-    ])
+    leaf.prop_recursive(4, 64, 8, |inner| {
+        prop_oneof![
+            prop::collection::vec(inner.clone(), 0..6).prop_map(serde_json::Value::from),
+            prop::collection::btree_map("[a-z/~]{0,8}", inner, 0..6)
+                .prop_map(|m| serde_json::Value::Object(m.into_iter().collect())),
+        ]
+    })
 }
 
 proptest! {

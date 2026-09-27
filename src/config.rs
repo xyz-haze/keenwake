@@ -245,9 +245,7 @@ fn source_spec(name: &str, mut table: toml::Table) -> Result<SourceSpec, ConfigE
         Some(_) => return Err(invalid(format!("source {name}: preset must be a string"))),
         None => table,
     };
-    toml::Value::Table(merged)
-        .try_into()
-        .map_err(|e| invalid(format!("source {name}: {e}")))
+    toml::Value::Table(merged).try_into().map_err(|e| invalid(format!("source {name}: {e}")))
 }
 
 fn valid_hhmm(s: &str) -> bool {

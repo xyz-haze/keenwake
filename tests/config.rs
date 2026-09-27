@@ -44,13 +44,17 @@ fn gate_requires_a_ping_output() {
 
 #[test]
 fn gate_requires_an_escalate_output() {
-    let bad = format!("{MIN}\n[decision]\nmode = \"gate\"\n[outputs]\nping = \"http://x/ping\"\ndigest = \"http://x/digest\"\n");
+    let bad = format!(
+        "{MIN}\n[decision]\nmode = \"gate\"\n[outputs]\nping = \"http://x/ping\"\ndigest = \"http://x/digest\"\n"
+    );
     assert!(Config::from_toml(&bad).unwrap_err().to_string().contains("outputs.escalate"));
 }
 
 #[test]
 fn gate_requires_a_digest_output() {
-    let bad = format!("{MIN}\n[decision]\nmode = \"gate\"\n[outputs]\nping = \"http://x/ping\"\nescalate = \"http://x/escalate\"\n");
+    let bad = format!(
+        "{MIN}\n[decision]\nmode = \"gate\"\n[outputs]\nping = \"http://x/ping\"\nescalate = \"http://x/escalate\"\n"
+    );
     assert!(Config::from_toml(&bad).unwrap_err().to_string().contains("outputs.digest"));
 }
 
@@ -87,7 +91,8 @@ fn section_named_like_a_preset_extends_it() {
 
 #[test]
 fn custom_source_without_preset() {
-    let t = format!(r#"{MIN}
+    let t = format!(
+        r#"{MIN}
 [source.homelab]
 alerts = ""
 [source.homelab.fields]
@@ -95,7 +100,8 @@ status = {{ path = "/state", map = {{ KO = "firing", OK = "resolved" }} }}
 identity = {{ path = "/check" }}
 summary = {{ template = "{{check}} failed: {{line}}" }}
 env = {{ const = "prod" }}
-"#);
+"#
+    );
     let c = Config::from_toml(&t).unwrap();
     let a = &extract("homelab", &c.sources["homelab"], br#"{"state":"OK","check":"b","line":"l"}"#).unwrap()[0];
     assert_eq!(a.summary, "b failed: l");
@@ -112,7 +118,9 @@ fn unknown_preset_and_unknown_keys_fail_at_load() {
 #[test]
 fn shipped_presets_read_their_fixtures() {
     let c = Config::from_toml(MIN).unwrap();
-    for (name, file) in [("grafana", "tests/fixtures/grafana.json"), ("alertmanager", "tests/fixtures/alertmanager.json")] {
+    for (name, file) in
+        [("grafana", "tests/fixtures/grafana.json"), ("alertmanager", "tests/fixtures/alertmanager.json")]
+    {
         let alerts = extract(name, &c.sources[name], &std::fs::read(file).unwrap()).unwrap();
         assert!(!alerts.is_empty());
         assert!(alerts.iter().all(|a| a.env == "prod"));

@@ -1,8 +1,8 @@
 //! Repeat suppression is bounded in time: a lost `resolved` must not silence an identity forever.
 mod common;
+use common::{system_one_from_state, FakeHttp};
 use keenwake::config::Config;
 use keenwake::server::{handle_body, App};
-use common::{system_one_from_state, FakeHttp};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
@@ -11,14 +11,20 @@ const HOUR: i64 = 3600;
 
 // One clock per test: tests in this file run in parallel.
 static NOW_LOST: AtomicI64 = AtomicI64::new(T0);
-fn clock_lost() -> i64 { NOW_LOST.load(Ordering::SeqCst) }
+fn clock_lost() -> i64 {
+    NOW_LOST.load(Ordering::SeqCst)
+}
 static NOW_WINDOW: AtomicI64 = AtomicI64::new(T0);
-fn clock_window() -> i64 { NOW_WINDOW.load(Ordering::SeqCst) }
+fn clock_window() -> i64 {
+    NOW_WINDOW.load(Ordering::SeqCst)
+}
 
 fn grafana(summary: &str, fp: &str, status: &str) -> Vec<u8> {
     serde_json::json!({"alerts": [{"status": status, "fingerprint": fp,
         "labels": {"alertname": "A", "env": "prod", "severity": "critical"},
-        "annotations": {"summary": summary}}]}).to_string().into_bytes()
+        "annotations": {"summary": summary}}]})
+    .to_string()
+    .into_bytes()
 }
 
 async fn gate_app(be: &FakeHttp, out: &FakeHttp, dir: &tempfile::TempDir, clock: fn() -> i64) -> App {

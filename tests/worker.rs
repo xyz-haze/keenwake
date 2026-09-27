@@ -1,20 +1,22 @@
 //! The webhook queue: one ordered worker, bounded, panic-isolated, drained on shutdown.
 mod common;
+use axum::body::Body;
+use axum::http::Request;
+use common::{system_one_from_state, FakeHttp};
 use keenwake::config::Config;
 use keenwake::mapping::{Alert, Status};
 use keenwake::server::{router, App};
-use keenwake::worker::{queue, start, QUEUE_CAPACITY};
-use axum::body::Body;
-use axum::http::Request;
-use tower::ServiceExt;
 use keenwake::store::Store;
-use common::{system_one_from_state, FakeHttp};
+use keenwake::worker::{queue, start, QUEUE_CAPACITY};
 use std::sync::Arc;
+use tower::ServiceExt;
 
 fn grafana(summary: &str, fp: &str, status: &str) -> Vec<u8> {
     serde_json::json!({"alerts": [{"status": status, "fingerprint": fp,
         "labels": {"alertname": "A", "env": "prod", "severity": "critical"},
-        "annotations": {"summary": summary}}]}).to_string().into_bytes()
+        "annotations": {"summary": summary}}]})
+    .to_string()
+    .into_bytes()
 }
 
 fn gate_toml(be: &FakeHttp, out: &FakeHttp, dir: &tempfile::TempDir) -> String {
@@ -23,13 +25,20 @@ fn gate_toml(be: &FakeHttp, out: &FakeHttp, dir: &tempfile::TempDir) -> String {
 }
 
 async fn post(r: &axum::Router, source: &str, body: Vec<u8>) -> u16 {
-    r.clone().oneshot(Request::post(format!("/hook/{source}")).body(Body::from(body)).unwrap()).await.unwrap().status().as_u16()
+    r.clone()
+        .oneshot(Request::post(format!("/hook/{source}")).body(Body::from(body)).unwrap())
+        .await
+        .unwrap()
+        .status()
+        .as_u16()
 }
 
 /// Polls until `out` has received `n` bodies, or 5 s have passed.
 async fn wait_for(out: &FakeHttp, n: usize) {
     for _ in 0..250 {
-        if out.bodies().len() >= n { return; }
+        if out.bodies().len() >= n {
+            return;
+        }
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 }
@@ -59,8 +68,15 @@ fn store_recovers_after_a_panic_in_a_previous_call() {
     let s = Store::open(path.to_str().unwrap()).unwrap();
     rusqlite::Connection::open(&path).unwrap().execute_batch(
         "CREATE TRIGGER boom BEFORE INSERT ON events WHEN NEW.summary = 'boom' BEGIN SELECT RAISE(ABORT, 'forced'); END;").unwrap();
-    let alert = |summary: &str| Alert { source: "g".into(), status: Status::Firing, identity: "id".into(), summary: summary.into(),
-        details: "".into(), env: "prod".into(), severity: "critical".into() };
+    let alert = |summary: &str| Alert {
+        source: "g".into(),
+        status: Status::Firing,
+        identity: "id".into(),
+        summary: summary.into(),
+        details: "".into(),
+        env: "prod".into(),
+        severity: "critical".into(),
+    };
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.insert_event(&alert("boom"), 1)));
     assert!(r.is_err(), "the trigger must make insert_event panic");
     s.insert_event(&alert("fine"), 2);
@@ -69,15 +85,25 @@ fn store_recovers_after_a_panic_in_a_previous_call() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn resolved_during_backend_call_follows_its_ping() {
-    let be = FakeHttp::start(Arc::new(|_| (200, serde_json::json!({"answers": {"page_now": {"noul": 0.9}}}).to_string(), 500))).await;
+    let be = FakeHttp::start(Arc::new(|_| {
+        (200, serde_json::json!({"answers": {"page_now": {"noul": 0.9}}}).to_string(), 500)
+    }))
+    .await;
     let out = FakeHttp::start(Arc::new(|_| (200, "ok".into(), 0))).await;
     let dir = tempfile::tempdir().unwrap();
-    let a = Arc::new(App::new(Config::from_toml(&gate_toml(&be, &out, &dir)).unwrap(), Store::memory(), || 1_800_000_000).unwrap());
+    let a = Arc::new(
+        App::new(Config::from_toml(&gate_toml(&be, &out, &dir)).unwrap(), Store::memory(), || 1_800_000_000).unwrap(),
+    );
     let (q, _worker) = start(a.clone(), QUEUE_CAPACITY);
     let r = router(a.clone(), q);
-    r.clone().oneshot(Request::post("/hook/grafana").body(Body::from(grafana("disk", "f9", "firing"))).unwrap()).await.unwrap();
+    r.clone()
+        .oneshot(Request::post("/hook/grafana").body(Body::from(grafana("disk", "f9", "firing"))).unwrap())
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    r.oneshot(Request::post("/hook/grafana").body(Body::from(grafana("disk", "f9", "resolved"))).unwrap()).await.unwrap();
+    r.oneshot(Request::post("/hook/grafana").body(Body::from(grafana("disk", "f9", "resolved"))).unwrap())
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
     assert_eq!(kinds(&out), vec!["ping", "resolved"]);
 }
@@ -87,7 +113,9 @@ async fn full_queue_replies_503_and_unknown_source_stays_404() {
     let be = FakeHttp::start(system_one_from_state()).await;
     let out = FakeHttp::start(Arc::new(|_| (200, "ok".into(), 0))).await;
     let dir = tempfile::tempdir().unwrap();
-    let a = Arc::new(App::new(Config::from_toml(&gate_toml(&be, &out, &dir)).unwrap(), Store::memory(), || 1_800_000_000).unwrap());
+    let a = Arc::new(
+        App::new(Config::from_toml(&gate_toml(&be, &out, &dir)).unwrap(), Store::memory(), || 1_800_000_000).unwrap(),
+    );
     let (q, _rx) = queue(1); // no worker: nothing drains it
     let r = router(a.clone(), q);
     assert_eq!(post(&r, "grafana", grafana("p=0.90 a", "f1", "firing")).await, 200);
@@ -125,9 +153,16 @@ async fn panic_while_processing_in_observe_is_only_counted() {
     let be = FakeHttp::start(system_one_from_state()).await;
     let out = FakeHttp::start(Arc::new(|_| (200, "ok".into(), 0))).await;
     let dir = tempfile::tempdir().unwrap();
-    let toml = format!("[backend]\nurl='{}'\nmodel='m-1'\n[outputs]\nping='{}/ping'\nverdict='{}/v'\n[store]\nundelivered='{}'\n",
-        be.url, out.url, out.url, dir.path().join("u").display());
-    let a = Arc::new(App::new(Config::from_toml(&toml).unwrap(), store_with_trigger(&dir, BOOM_ON_EVENT), || 1_800_000_000).unwrap());
+    let toml = format!(
+        "[backend]\nurl='{}'\nmodel='m-1'\n[outputs]\nping='{}/ping'\nverdict='{}/v'\n[store]\nundelivered='{}'\n",
+        be.url,
+        out.url,
+        out.url,
+        dir.path().join("u").display()
+    );
+    let a = Arc::new(
+        App::new(Config::from_toml(&toml).unwrap(), store_with_trigger(&dir, BOOM_ON_EVENT), || 1_800_000_000).unwrap(),
+    );
     let (q, _worker) = start(a.clone(), QUEUE_CAPACITY);
     let r = router(a.clone(), q);
     post(&r, "grafana", grafana("boom", "f1", "firing")).await;
@@ -143,13 +178,20 @@ async fn panic_while_processing_in_observe_is_only_counted() {
 
 #[tokio::test]
 async fn worker_drains_queued_webhooks_once_the_router_is_dropped() {
-    let be = FakeHttp::start(Arc::new(|_| (200, serde_json::json!({"answers": {"page_now": {"noul": 0.1}}}).to_string(), 100))).await;
+    let be = FakeHttp::start(Arc::new(|_| {
+        (200, serde_json::json!({"answers": {"page_now": {"noul": 0.1}}}).to_string(), 100)
+    }))
+    .await;
     let out = FakeHttp::start(Arc::new(|_| (200, "ok".into(), 0))).await;
     let dir = tempfile::tempdir().unwrap();
-    let a = Arc::new(App::new(Config::from_toml(&gate_toml(&be, &out, &dir)).unwrap(), Store::memory(), || 1_800_000_000).unwrap());
+    let a = Arc::new(
+        App::new(Config::from_toml(&gate_toml(&be, &out, &dir)).unwrap(), Store::memory(), || 1_800_000_000).unwrap(),
+    );
     let (q, worker) = start(a.clone(), QUEUE_CAPACITY);
     let r = router(a.clone(), q);
-    for i in 0..3 { assert_eq!(post(&r, "grafana", grafana("disk", &format!("f{i}"), "firing")).await, 200); }
+    for i in 0..3 {
+        assert_eq!(post(&r, "grafana", grafana("disk", &format!("f{i}"), "firing")).await, 200);
+    }
     drop(r);
     tokio::time::timeout(std::time::Duration::from_secs(5), worker).await.expect("worker ends").unwrap();
     assert_eq!(a.store.decisions_since(0).len(), 3, "every queued webhook was decided before the worker ended");
@@ -160,9 +202,19 @@ async fn digest_tick_panic_is_contained() {
     let be = FakeHttp::start(system_one_from_state()).await;
     let out = FakeHttp::start(Arc::new(|_| (200, "ok".into(), 0))).await;
     let dir = tempfile::tempdir().unwrap();
-    let s = store_with_trigger(&dir, "CREATE TRIGGER boom BEFORE DELETE ON digest_queue BEGIN SELECT RAISE(ABORT, 'forced'); END;");
-    let alert = Alert { source: "g".into(), status: Status::Firing, identity: "id".into(), summary: "x".into(),
-        details: "".into(), env: "prod".into(), severity: "critical".into() };
+    let s = store_with_trigger(
+        &dir,
+        "CREATE TRIGGER boom BEFORE DELETE ON digest_queue BEGIN SELECT RAISE(ABORT, 'forced'); END;",
+    );
+    let alert = Alert {
+        source: "g".into(),
+        status: Status::Firing,
+        identity: "id".into(),
+        summary: "x".into(),
+        details: "".into(),
+        env: "prod".into(),
+        severity: "critical".into(),
+    };
     s.queue_digest(s.insert_event(&alert, 1_800_000_000));
     let a = Arc::new(App::new(Config::from_toml(&gate_toml(&be, &out, &dir)).unwrap(), s, || 1_800_000_000).unwrap());
     let day = 1_800_000_000 - 1_800_000_000 % 86_400;

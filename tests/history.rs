@@ -4,8 +4,15 @@ use keenwake::store::{DecisionRow, Store};
 use proptest::prelude::*;
 
 fn alert(status: Status) -> Alert {
-    Alert { source: "s".into(), status, identity: "id".into(), summary: "x".into(),
-            details: "".into(), env: "prod".into(), severity: "critical".into() }
+    Alert {
+        source: "s".into(),
+        status,
+        identity: "id".into(),
+        summary: "x".into(),
+        details: "".into(),
+        env: "prod".into(),
+        severity: "critical".into(),
+    }
 }
 
 const MIN: i64 = 60;
@@ -17,7 +24,9 @@ fn counts_episodes_and_median() {
     // three episodes of 2, 4 and 6 minutes, with a repeated firing inside the second
     for (start, dur) in [(0, 2), (60, 4), (120, 6)] {
         s.insert_event(&alert(Status::Firing), t0 + start * MIN);
-        if start == 60 { s.insert_event(&alert(Status::Firing), t0 + (start + 1) * MIN); }
+        if start == 60 {
+            s.insert_event(&alert(Status::Firing), t0 + (start + 1) * MIN);
+        }
         s.insert_event(&alert(Status::Resolved), t0 + (start + dur) * MIN);
     }
     let now = t0 + 200 * MIN;
@@ -66,8 +75,17 @@ fn episode_pinged_sees_only_the_open_episode() {
     let s = Store::memory();
     let t0 = 1_800_000_000;
     let e1 = s.insert_event(&alert(Status::Firing), t0);
-    s.insert_decision(&DecisionRow { event_seq: e1, decided_at: t0, mode: "gate".into(), kind: "ping".into(),
-        probability: Some(0.9), reason: "".into(), delivered: true, backend_ms: Some(5), input_tokens: Some(10) });
+    s.insert_decision(&DecisionRow {
+        event_seq: e1,
+        decided_at: t0,
+        mode: "gate".into(),
+        kind: "ping".into(),
+        probability: Some(0.9),
+        reason: "".into(),
+        delivered: true,
+        backend_ms: Some(5),
+        input_tokens: Some(10),
+    });
     let e2 = s.insert_event(&alert(Status::Firing), t0 + MIN);
     assert!(s.episode_pinged("id", e2, 0));
     assert!(s.episode_pinged("id", e2, t0), "a ping decided exactly at the window start still counts");
@@ -82,7 +100,10 @@ fn store_survives_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("a.db");
     let p = path.to_str().unwrap();
-    { let s = Store::open(p).unwrap(); s.insert_event(&alert(Status::Firing), 1); }
+    {
+        let s = Store::open(p).unwrap();
+        s.insert_event(&alert(Status::Firing), 1);
+    }
     let s = Store::open(p).unwrap();
     assert_eq!(s.events_since(0).len(), 1);
 }

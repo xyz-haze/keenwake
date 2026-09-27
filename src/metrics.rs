@@ -4,16 +4,23 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 #[derive(Default)]
-pub struct Metrics { counters: Mutex<BTreeMap<String, u64>> }
+pub struct Metrics {
+    counters: Mutex<BTreeMap<String, u64>>,
+}
 
 fn key(name: &str, labels: &[(&str, &str)]) -> String {
-    if labels.is_empty() { return name.to_string(); }
-    let l: Vec<String> = labels.iter().map(|(k, v)| format!("{k}=\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))).collect();
+    if labels.is_empty() {
+        return name.to_string();
+    }
+    let l: Vec<String> =
+        labels.iter().map(|(k, v)| format!("{k}=\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))).collect();
     format!("{name}{{{}}}", l.join(","))
 }
 
 impl Metrics {
-    pub fn inc(&self, name: &str, labels: &[(&str, &str)]) { self.add(name, labels, 1); }
+    pub fn inc(&self, name: &str, labels: &[(&str, &str)]) {
+        self.add(name, labels, 1);
+    }
 
     pub fn add(&self, name: &str, labels: &[(&str, &str)], n: u64) {
         *self.counters.lock().expect("metrics").entry(key(name, labels)).or_insert(0) += n;

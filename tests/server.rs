@@ -1,12 +1,13 @@
 mod common;
+use common::{system_one_from_state, FakeHttp};
 use keenwake::config::Config;
 use keenwake::server::{handle_body, App};
-use common::{system_one_from_state, FakeHttp};
 use std::sync::Arc;
 
 async fn app(mode: &str, on_error: &str, backend: &FakeHttp, out: &FakeHttp, extra: &str) -> (App, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let toml = format!(r#"
+    let toml = format!(
+        r#"
 [backend]
 url = "{}"
 model = "m-1"
@@ -22,7 +23,14 @@ verdict = "{}/verdict"
 [store]
 undelivered = "{}"
 {extra}
-"#, backend.url, out.url, out.url, out.url, out.url, dir.path().join("u.jsonl").display());
+"#,
+        backend.url,
+        out.url,
+        out.url,
+        out.url,
+        out.url,
+        dir.path().join("u.jsonl").display()
+    );
     let cfg = Config::from_toml(&toml).unwrap();
     (App::new(cfg, keenwake::store::Store::memory(), || 1_800_000_000).unwrap(), dir)
 }
@@ -30,10 +38,14 @@ undelivered = "{}"
 fn grafana(summary: &str, fp: &str, status: &str) -> Vec<u8> {
     serde_json::json!({"alerts": [{"status": status, "fingerprint": fp,
         "labels": {"alertname": "A", "env": "prod", "severity": "critical"},
-        "annotations": {"summary": summary}}]}).to_string().into_bytes()
+        "annotations": {"summary": summary}}]})
+    .to_string()
+    .into_bytes()
 }
 
-fn sink() -> common::Responder { Arc::new(|_| (200, "ok".into(), 0)) }
+fn sink() -> common::Responder {
+    Arc::new(|_| (200, "ok".into(), 0))
+}
 
 #[tokio::test]
 async fn gate_pings_high_and_escalates_middle() {
@@ -150,7 +162,8 @@ async fn hook_replies_before_a_slow_backend_finishes() {
     let dir = tempfile::tempdir().unwrap();
     // A generously long backend timeout: if the handler awaited the backend inline, this
     // request would take the full 5s the fake backend sleeps for.
-    let toml = format!(r#"
+    let toml = format!(
+        r#"
 [backend]
 url = "{}"
 model = "m-1"
@@ -161,7 +174,11 @@ mode = "observe"
 verdict = "{}/verdict"
 [store]
 undelivered = "{}"
-"#, be.url, out.url, dir.path().join("u.jsonl").display());
+"#,
+        be.url,
+        out.url,
+        dir.path().join("u.jsonl").display()
+    );
     let cfg = Config::from_toml(&toml).unwrap();
     let a = App::new(cfg, keenwake::store::Store::memory(), || 1_800_000_000).unwrap();
     let a = Arc::new(a);
@@ -217,8 +234,14 @@ async fn replay_of_recorded_gate_history_changes_nothing() {
     let be = FakeHttp::start(system_one_from_state()).await;
     let out = FakeHttp::start(sink()).await;
     let (a, _d) = app("gate", "ping", &be, &out, "").await;
-    for (summary, fp, status) in [("p=0.90 disk", "f1", "firing"), ("p=0.90 disk", "f1", "firing"), ("p=0.90 disk", "f1", "resolved"),
-                                  ("p=0.90 disk", "f1", "firing"), ("p=0.40 cpu", "f2", "firing"), ("p=0.10 queue", "f3", "firing")] {
+    for (summary, fp, status) in [
+        ("p=0.90 disk", "f1", "firing"),
+        ("p=0.90 disk", "f1", "firing"),
+        ("p=0.90 disk", "f1", "resolved"),
+        ("p=0.90 disk", "f1", "firing"),
+        ("p=0.40 cpu", "f2", "firing"),
+        ("p=0.10 queue", "f3", "firing"),
+    ] {
         handle_body(&a, "grafana", &grafana(summary, fp, status)).await;
     }
     let stored: Vec<String> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind).collect();

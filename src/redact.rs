@@ -2,7 +2,9 @@
 
 use regex::Regex;
 
-pub struct Redactor { rules: Vec<(Regex, &'static str)> }
+pub struct Redactor {
+    rules: Vec<(Regex, &'static str)>,
+}
 
 fn rules_for(name: &str) -> Vec<(Regex, &'static str)> {
     let r = |p: &str| Regex::new(p).expect("static regex");
@@ -10,7 +12,12 @@ fn rules_for(name: &str) -> Vec<(Regex, &'static str)> {
         "email" => vec![(r(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[redacted:email]")],
         "ip" => vec![
             (r(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "[redacted:ip]"),
-            (r(r"\b(?:[0-9A-Fa-f]{1,4}:){3,7}[0-9A-Fa-f]{0,4}\b|\b(?:[0-9A-Fa-f]{1,4}:){1,7}:(?:[0-9A-Fa-f]{1,4}:?){0,6}\b"), "[redacted:ip]"),
+            (
+                r(
+                    r"\b(?:[0-9A-Fa-f]{1,4}:){3,7}[0-9A-Fa-f]{0,4}\b|\b(?:[0-9A-Fa-f]{1,4}:){1,7}:(?:[0-9A-Fa-f]{1,4}:?){0,6}\b",
+                ),
+                "[redacted:ip]",
+            ),
         ],
         "token" => vec![
             (r(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+"), "[redacted:token]"),

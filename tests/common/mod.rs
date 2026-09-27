@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex};
 pub type Responder = Arc<dyn Fn(&serde_json::Value) -> (u16, String, u64) + Send + Sync>;
 
 #[derive(Clone)]
-pub struct FakeHttp { pub url: String, pub received: Arc<Mutex<Vec<serde_json::Value>>> }
+pub struct FakeHttp {
+    pub url: String,
+    pub received: Arc<Mutex<Vec<serde_json::Value>>>,
+}
 
 impl FakeHttp {
     /// `responder(body) -> (status, body, delay_ms)`, keyed by request content, never by call order.
@@ -21,14 +24,21 @@ impl FakeHttp {
         FakeHttp { url, received }
     }
 
-    pub fn bodies(&self) -> Vec<serde_json::Value> { self.received.lock().unwrap().clone() }
+    pub fn bodies(&self) -> Vec<serde_json::Value> {
+        self.received.lock().unwrap().clone()
+    }
 }
 
-async fn handle(State((rec, resp)): State<(Arc<Mutex<Vec<serde_json::Value>>>, Responder)>, body: Bytes) -> (StatusCode, String) {
+async fn handle(
+    State((rec, resp)): State<(Arc<Mutex<Vec<serde_json::Value>>>, Responder)>,
+    body: Bytes,
+) -> (StatusCode, String) {
     let v: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
     rec.lock().unwrap().push(v.clone());
     let (code, text, delay) = resp(&v);
-    if delay > 0 { tokio::time::sleep(std::time::Duration::from_millis(delay)).await; }
+    if delay > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+    }
     (StatusCode::from_u16(code).unwrap(), text)
 }
 
@@ -37,8 +47,13 @@ pub fn system_one_from_state() -> Responder {
     Arc::new(|body| {
         let state = body["state"].as_str().unwrap_or("");
         match state.split("p=").nth(1).and_then(|s| s.get(..4)).and_then(|s| s.parse::<f64>().ok()) {
-            Some(p) => (200, serde_json::json!({"model": "fake", "answers": {"page_now": {"type": "noul", "noul": p}},
-                                               "usage": {"input_tokens": 100}}).to_string(), 0),
+            Some(p) => (
+                200,
+                serde_json::json!({"model": "fake", "answers": {"page_now": {"type": "noul", "noul": p}},
+                                               "usage": {"input_tokens": 100}})
+                .to_string(),
+                0,
+            ),
             None if state.contains("fail500") => (500, "boom".into(), 0),
             None if state.contains("slow") => (200, "{}".into(), 5_000),
             None => (200, r#"{"answers":{}}"#.into(), 0),

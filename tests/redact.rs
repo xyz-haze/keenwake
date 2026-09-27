@@ -1,7 +1,9 @@
 use keenwake::redact::Redactor;
 use proptest::prelude::*;
 
-fn all() -> Redactor { Redactor::new(&["email".into(), "ip".into(), "token".into()]) }
+fn all() -> Redactor {
+    Redactor::new(&["email".into(), "ip".into(), "token".into()])
+}
 
 #[test]
 fn scrubs_each_kind() {

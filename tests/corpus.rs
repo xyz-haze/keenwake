@@ -12,7 +12,17 @@ fn auc(ps: &[(f64, bool)]) -> f64 {
     let pos: Vec<f64> = ps.iter().filter(|x| x.1).map(|x| x.0).collect();
     let neg: Vec<f64> = ps.iter().filter(|x| !x.1).map(|x| x.0).collect();
     let mut wins = 0.0;
-    for p in &pos { for n in &neg { wins += if p > n { 1.0 } else if p == n { 0.5 } else { 0.0 }; } }
+    for p in &pos {
+        for n in &neg {
+            wins += if p > n {
+                1.0
+            } else if p == n {
+                0.5
+            } else {
+                0.0
+            };
+        }
+    }
     wins / (pos.len() * neg.len()) as f64
 }
 
@@ -35,14 +45,27 @@ async fn corpus_auc_stays_above_095() {
     let mut scored = Vec::new();
     for line in std::fs::read_to_string("tests/fixtures/corpus.jsonl").unwrap().lines() {
         let r: serde_json::Value = serde_json::from_str(line).unwrap();
-        if r["status"] != "firing" { continue; }
+        if r["status"] != "firing" {
+            continue;
+        }
         let episodes = r["episodes"].as_u64().unwrap() as u32;
-        let f = Facts { env: r["env"].as_str().unwrap().into(), firing: true, minutes: r["minutes"].as_i64().unwrap(),
-            episodes_7d: episodes, resolved_7d: (episodes as f64 * r["ratio"].as_f64().unwrap()).round() as u32,
-            median_minutes: r["median"].as_i64() };
-        let a = Alert { source: "corpus".into(), status: Status::Firing, identity: r["id"].as_str().unwrap().into(),
-            summary: r["summary"].as_str().unwrap().into(), details: r["details"].as_str().unwrap().into(),
-            env: f.env.clone(), severity: r["severity"].as_str().unwrap().into() };
+        let f = Facts {
+            env: r["env"].as_str().unwrap().into(),
+            firing: true,
+            minutes: r["minutes"].as_i64().unwrap(),
+            episodes_7d: episodes,
+            resolved_7d: (episodes as f64 * r["ratio"].as_f64().unwrap()).round() as u32,
+            median_minutes: r["median"].as_i64(),
+        };
+        let a = Alert {
+            source: "corpus".into(),
+            status: Status::Firing,
+            identity: r["id"].as_str().unwrap().into(),
+            summary: r["summary"].as_str().unwrap().into(),
+            details: r["details"].as_str().unwrap().into(),
+            env: f.env.clone(),
+            severity: r["severity"].as_str().unwrap().into(),
+        };
         let p = b.ask(&sentence(&a, &f), &Question::default()).await.expect("backend answer").probability;
         scored.push((p, r["page"].as_i64().unwrap() == 1));
     }

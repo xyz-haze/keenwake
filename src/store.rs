@@ -4,10 +4,16 @@ use crate::mapping::{Alert, Status};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::sync::{Mutex, PoisonError};
 
-pub struct Store { conn: Mutex<Connection> }
+pub struct Store {
+    conn: Mutex<Connection>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Event { pub seq: i64, pub received_at: i64, pub alert: Alert }
+pub struct Event {
+    pub seq: i64,
+    pub received_at: i64,
+    pub alert: Alert,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecisionRow {
@@ -43,19 +49,37 @@ const EVENT_COLS: &str = "seq, received_at, source, identity, status, summary, d
 
 fn event(r: &Row) -> rusqlite::Result<Event> {
     let status: String = r.get(4)?;
-    Ok(Event { seq: r.get(0)?, received_at: r.get(1)?, alert: Alert {
-        source: r.get(2)?, identity: r.get(3)?,
-        status: Status::parse(&status).unwrap_or(Status::Firing),
-        summary: r.get(5)?, details: r.get(6)?, env: r.get(7)?, severity: r.get(8)? } })
+    Ok(Event {
+        seq: r.get(0)?,
+        received_at: r.get(1)?,
+        alert: Alert {
+            source: r.get(2)?,
+            identity: r.get(3)?,
+            status: Status::parse(&status).unwrap_or(Status::Firing),
+            summary: r.get(5)?,
+            details: r.get(6)?,
+            env: r.get(7)?,
+            severity: r.get(8)?,
+        },
+    })
 }
 
 fn decision(r: &Row, o: usize) -> rusqlite::Result<DecisionRow> {
-    Ok(DecisionRow { event_seq: r.get(o)?, decided_at: r.get(o + 1)?, mode: r.get(o + 2)?, kind: r.get(o + 3)?,
-        probability: r.get(o + 4)?, reason: r.get(o + 5)?, delivered: r.get::<_, i64>(o + 6)? != 0,
-        backend_ms: r.get(o + 7)?, input_tokens: r.get(o + 8)? })
+    Ok(DecisionRow {
+        event_seq: r.get(o)?,
+        decided_at: r.get(o + 1)?,
+        mode: r.get(o + 2)?,
+        kind: r.get(o + 3)?,
+        probability: r.get(o + 4)?,
+        reason: r.get(o + 5)?,
+        delivered: r.get::<_, i64>(o + 6)? != 0,
+        backend_ms: r.get(o + 7)?,
+        input_tokens: r.get(o + 8)?,
+    })
 }
 
-const DECISION_COLS: &str = "d.event_seq, d.decided_at, d.mode, d.kind, d.probability, d.reason, d.delivered, d.backend_ms, d.input_tokens";
+const DECISION_COLS: &str =
+    "d.event_seq, d.decided_at, d.mode, d.kind, d.probability, d.reason, d.delivered, d.backend_ms, d.input_tokens";
 
 impl Store {
     pub fn open(path: &str) -> anyhow::Result<Store> {
@@ -73,14 +97,18 @@ impl Store {
 
     /// A panic in an earlier call poisons the lock; the connection itself is still usable (an
     /// aborted statement is rolled back by SQLite), so recover it rather than failing every call.
-    fn c(&self) -> std::sync::MutexGuard<'_, Connection> { self.conn.lock().unwrap_or_else(PoisonError::into_inner) }
+    fn c(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 
     pub fn insert_event(&self, a: &Alert, received_at: i64) -> i64 {
         let c = self.c();
-        c.execute("INSERT INTO events (received_at, source, identity, status, summary, details, env, severity)
+        c.execute(
+            "INSERT INTO events (received_at, source, identity, status, summary, details, env, severity)
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![received_at, a.source, a.identity, a.status.as_str(), a.summary, a.details, a.env, a.severity])
-            .expect("insert event");
+            params![received_at, a.source, a.identity, a.status.as_str(), a.summary, a.details, a.env, a.severity],
+        )
+        .expect("insert event");
         c.last_insert_rowid()
     }
 
@@ -90,16 +118,22 @@ impl Store {
     /// even if that event lies outside `[since, before_seq)` — see `history::facts`.
     pub fn events_for(&self, identity: &str, since: i64, before_seq: i64) -> Vec<Event> {
         let c = self.c();
-        let mut st = c.prepare(&format!("SELECT {EVENT_COLS} FROM events
+        let mut st = c
+            .prepare(&format!(
+                "SELECT {EVENT_COLS} FROM events
             WHERE identity = ?1 AND seq < ?2 AND seq > COALESCE(
               (SELECT MAX(seq) FROM events WHERE identity = ?1 AND status = 'resolved' AND received_at < ?3), 0)
-            ORDER BY seq")).expect("prepare");
+            ORDER BY seq"
+            ))
+            .expect("prepare");
         st.query_map(params![identity, before_seq, since], event).expect("query").map(|r| r.expect("row")).collect()
     }
 
     pub fn events_since(&self, since: i64) -> Vec<Event> {
         let c = self.c();
-        let mut st = c.prepare(&format!("SELECT {EVENT_COLS} FROM events WHERE received_at >= ?1 ORDER BY seq")).expect("prepare");
+        let mut st = c
+            .prepare(&format!("SELECT {EVENT_COLS} FROM events WHERE received_at >= ?1 ORDER BY seq"))
+            .expect("prepare");
         st.query_map(params![since], event).expect("query").map(|r| r.expect("row")).collect()
     }
 
@@ -114,16 +148,28 @@ impl Store {
 
     pub fn decision_for(&self, event_seq: i64) -> Option<DecisionRow> {
         let c = self.c();
-        c.query_row(&format!("SELECT {DECISION_COLS} FROM decisions d WHERE d.event_seq = ?1"),
-            params![event_seq], |r| decision(r, 0)).optional().expect("query")
+        c.query_row(
+            &format!("SELECT {DECISION_COLS} FROM decisions d WHERE d.event_seq = ?1"),
+            params![event_seq],
+            |r| decision(r, 0),
+        )
+        .optional()
+        .expect("query")
     }
 
     pub fn decisions_since(&self, since: i64) -> Vec<(Event, DecisionRow)> {
         let c = self.c();
         let cols: String = EVENT_COLS.split(", ").map(|x| format!("e.{x}")).collect::<Vec<_>>().join(", ");
-        let mut st = c.prepare(&format!("SELECT {cols}, {DECISION_COLS} FROM decisions d JOIN events e ON e.seq = d.event_seq
-            WHERE e.received_at >= ?1 ORDER BY e.seq")).expect("prepare");
-        st.query_map(params![since], |r| Ok((event(r)?, decision(r, 9)?))).expect("query").map(|r| r.expect("row")).collect()
+        let mut st = c
+            .prepare(&format!(
+                "SELECT {cols}, {DECISION_COLS} FROM decisions d JOIN events e ON e.seq = d.event_seq
+            WHERE e.received_at >= ?1 ORDER BY e.seq"
+            ))
+            .expect("prepare");
+        st.query_map(params![since], |r| Ok((event(r)?, decision(r, 9)?)))
+            .expect("query")
+            .map(|r| r.expect("row"))
+            .collect()
     }
 
     /// True if the episode open at `before_seq` already had a delivered ping or untriaged
@@ -131,9 +177,14 @@ impl Store {
     /// The time bound keeps a lost `resolved` from silencing the identity forever.
     pub fn episode_pinged(&self, identity: &str, before_seq: i64, since: i64) -> bool {
         let c = self.c();
-        let start: Option<i64> = c.query_row(
-            "SELECT COALESCE(MAX(seq), 0) FROM events WHERE identity = ?1 AND seq < ?2 AND status = 'resolved'",
-            params![identity, before_seq], |r| r.get(0)).optional().expect("query");
+        let start: Option<i64> = c
+            .query_row(
+                "SELECT COALESCE(MAX(seq), 0) FROM events WHERE identity = ?1 AND seq < ?2 AND status = 'resolved'",
+                params![identity, before_seq],
+                |r| r.get(0),
+            )
+            .optional()
+            .expect("query");
         c.query_row("SELECT EXISTS(SELECT 1 FROM decisions d JOIN events e ON e.seq = d.event_seq
                      WHERE e.identity = ?1 AND e.seq > ?2 AND e.seq < ?3 AND d.kind IN ('ping', 'untriaged') AND d.delivered = 1
                      AND d.decided_at >= ?4)",
@@ -141,7 +192,9 @@ impl Store {
     }
 
     pub fn queue_digest(&self, event_seq: i64) {
-        self.c().execute("INSERT OR IGNORE INTO digest_queue (event_seq) VALUES (?1)", params![event_seq]).expect("queue");
+        self.c()
+            .execute("INSERT OR IGNORE INTO digest_queue (event_seq) VALUES (?1)", params![event_seq])
+            .expect("queue");
     }
 
     pub fn take_digest(&self) -> Vec<Event> {
@@ -149,7 +202,11 @@ impl Store {
         let tx = c.transaction().expect("tx");
         let evs: Vec<Event> = {
             let cols: String = EVENT_COLS.split(", ").map(|x| format!("e.{x}")).collect::<Vec<_>>().join(", ");
-            let mut st = tx.prepare(&format!("SELECT {cols} FROM digest_queue q JOIN events e ON e.seq = q.event_seq ORDER BY e.seq")).expect("prepare");
+            let mut st = tx
+                .prepare(&format!(
+                    "SELECT {cols} FROM digest_queue q JOIN events e ON e.seq = q.event_seq ORDER BY e.seq"
+                ))
+                .expect("prepare");
             let v = st.query_map([], event).expect("query").map(|r| r.expect("row")).collect();
             v
         };
@@ -159,10 +216,15 @@ impl Store {
     }
 
     pub fn meta_get(&self, key: &str) -> Option<String> {
-        self.c().query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| r.get(0)).optional().expect("meta")
+        self.c()
+            .query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| r.get(0))
+            .optional()
+            .expect("meta")
     }
 
     pub fn meta_set(&self, key: &str, value: &str) {
-        self.c().execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value]).expect("meta");
+        self.c()
+            .execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value])
+            .expect("meta");
     }
 }

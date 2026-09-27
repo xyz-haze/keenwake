@@ -1,12 +1,22 @@
 mod common;
+use common::FakeHttp;
 use keenwake::mapping::{Alert, Status};
 use keenwake::output::{message, Sender};
-use common::FakeHttp;
-use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 fn alert() -> Alert {
-    Alert { source: "grafana".into(), status: Status::Firing, identity: "id1".into(), summary: "Disk full".into(),
-            details: "95%".into(), env: "prod".into(), severity: "critical".into() }
+    Alert {
+        source: "grafana".into(),
+        status: Status::Firing,
+        identity: "id1".into(),
+        summary: "Disk full".into(),
+        details: "95%".into(),
+        env: "prod".into(),
+        severity: "critical".into(),
+    }
 }
 
 #[test]
@@ -32,13 +42,18 @@ async fn delivers_on_success() {
 async fn retries_then_writes_undelivered() {
     let calls = Arc::new(AtomicUsize::new(0));
     let c = calls.clone();
-    let fake = FakeHttp::start(Arc::new(move |_| { c.fetch_add(1, Ordering::SeqCst); (503, "".into(), 0) })).await;
+    let fake = FakeHttp::start(Arc::new(move |_| {
+        c.fetch_add(1, Ordering::SeqCst);
+        (503, "".into(), 0)
+    }))
+    .await;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("u.jsonl");
     let s = Sender::new(path.to_str().unwrap().into(), 1);
     assert!(!s.post(&fake.url, &serde_json::json!({"a": 1})).await);
     assert_eq!(calls.load(Ordering::SeqCst), 3);
-    let line: serde_json::Value = serde_json::from_str(std::fs::read_to_string(&path).unwrap().lines().next().unwrap()).unwrap();
+    let line: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&path).unwrap().lines().next().unwrap()).unwrap();
     assert_eq!(line["body"], serde_json::json!({"a": 1}));
     assert_eq!(line["url"], fake.url.as_str());
 }
@@ -47,7 +62,14 @@ async fn retries_then_writes_undelivered() {
 async fn second_attempt_success_counts_as_delivered() {
     let calls = Arc::new(AtomicUsize::new(0));
     let c = calls.clone();
-    let fake = FakeHttp::start(Arc::new(move |_| if c.fetch_add(1, Ordering::SeqCst) == 0 { (500, "".into(), 0) } else { (200, "".into(), 0) })).await;
+    let fake = FakeHttp::start(Arc::new(move |_| {
+        if c.fetch_add(1, Ordering::SeqCst) == 0 {
+            (500, "".into(), 0)
+        } else {
+            (200, "".into(), 0)
+        }
+    }))
+    .await;
     let dir = tempfile::tempdir().unwrap();
     let s = Sender::new(dir.path().join("u.jsonl").to_str().unwrap().into(), 1);
     assert!(s.post(&fake.url, &serde_json::json!({})).await);

@@ -10,8 +10,12 @@ pub const ATTEMPTS: u32 = 3;
 pub fn message(kind: &str, a: &Alert, probability: Option<f64>, reason: &str, facts_line: &str) -> Value {
     let p = probability.map(|p| format!("{p:.2}")).unwrap_or_else(|| "n/a".into());
     let mut text = format!("[{kind}] {} ({}, {}, p={p})", a.summary, a.env, a.severity);
-    if !reason.is_empty() { text.push_str(&format!(" - {reason}")); }
-    if !facts_line.is_empty() { text.push_str(&format!(" - {facts_line}")); }
+    if !reason.is_empty() {
+        text.push_str(&format!(" - {reason}"));
+    }
+    if !facts_line.is_empty() {
+        text.push_str(&format!(" - {facts_line}"));
+    }
     json!({
         "text": text,
         "keenwake": {
@@ -22,7 +26,11 @@ pub fn message(kind: &str, a: &Alert, probability: Option<f64>, reason: &str, fa
     })
 }
 
-pub struct Sender { client: reqwest::Client, undelivered: String, base_delay_ms: u64 }
+pub struct Sender {
+    client: reqwest::Client,
+    undelivered: String,
+    base_delay_ms: u64,
+}
 
 impl Sender {
     pub fn new(undelivered: String, base_delay_ms: u64) -> Sender {
@@ -33,7 +41,9 @@ impl Sender {
     pub async fn post(&self, url: &str, body: &Value) -> bool {
         for attempt in 0..ATTEMPTS {
             if let Ok(r) = self.client.post(url).json(body).send().await {
-                if r.status().is_success() { return true; }
+                if r.status().is_success() {
+                    return true;
+                }
             }
             if attempt + 1 < ATTEMPTS {
                 tokio::time::sleep(Duration::from_millis(self.base_delay_ms << attempt)).await;

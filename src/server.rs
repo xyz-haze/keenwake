@@ -10,7 +10,13 @@ use crate::pipeline::{facts_line, finish, prepare};
 use crate::redact::Redactor;
 use crate::store::{DecisionRow, Store};
 use crate::worker::Queue;
-use axum::{body::Bytes, extract::{DefaultBodyLimit, Path, State}, http::StatusCode, routing::{get, post}, Router};
+use axum::{
+    body::Bytes,
+    extract::{DefaultBodyLimit, Path, State},
+    http::StatusCode,
+    routing::{get, post},
+    Router,
+};
 use std::sync::Arc;
 
 pub const MAX_BODY: usize = 1024 * 1024;
@@ -36,7 +42,9 @@ impl App {
             sender: Sender::new(cfg.store.undelivered.clone(), 200),
             redactor: Redactor::new(&cfg.redact.patterns),
             metrics: Metrics::default(),
-            store, cfg, clock,
+            store,
+            cfg,
+            clock,
         })
     }
 
@@ -52,9 +60,14 @@ impl App {
 
     pub(crate) async fn send(&self, t: Target, mut body: serde_json::Value) -> bool {
         let Some(url) = self.url(t) else { return false };
-        body["keenwake"]["channel"] = serde_json::json!(match t { Target::Verdict => "verdict", _ => "team" });
+        body["keenwake"]["channel"] = serde_json::json!(match t {
+            Target::Verdict => "verdict",
+            _ => "team",
+        });
         let ok = self.sender.post(url, &body).await;
-        if !ok { self.metrics.inc("keenwake_undelivered_total", &[]); }
+        if !ok {
+            self.metrics.inc("keenwake_undelivered_total", &[]);
+        }
         ok
     }
 }
@@ -62,13 +75,20 @@ impl App {
 /// Gate only: sends the redacted raw body (first 4000 characters) to `outputs.ping` as
 /// `untriaged`, for an alert keenwake could not decide on its own.
 pub(crate) async fn send_untriaged_raw(app: &App, source: &str, body: &[u8], text: String) {
-    if app.cfg.decision.mode != Mode::Gate { return; }
+    if app.cfg.decision.mode != Mode::Gate {
+        return;
+    }
     let raw: String = app.redactor.clean(&String::from_utf8_lossy(body)).chars().take(4000).collect();
     let msg = serde_json::json!({"text": text, "keenwake": {"decision": "untriaged", "source": source, "raw": raw}});
     app.send(Target::Ping, msg).await;
 }
 
-fn mode_str(m: Mode) -> &'static str { match m { Mode::Observe => "observe", Mode::Gate => "gate" } }
+fn mode_str(m: Mode) -> &'static str {
+    match m {
+        Mode::Observe => "observe",
+        Mode::Gate => "gate",
+    }
+}
 
 pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
     let Some(spec) = app.cfg.sources.get(source) else {
@@ -92,13 +112,27 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
         if !p.needs_model {
             let delivered = if app.cfg.decision.mode == Mode::Gate && p.already_pinged {
                 app.send(Target::Ping, message("resolved", &p.alert, None, "", "")).await
-            } else { false };
-            app.store.insert_decision(&DecisionRow { event_seq: p.event_seq, decided_at: now, mode, kind: "resolved".into(),
-                probability: None, reason: String::new(), delivered, backend_ms: None, input_tokens: None });
+            } else {
+                false
+            };
+            app.store.insert_decision(&DecisionRow {
+                event_seq: p.event_seq,
+                decided_at: now,
+                mode,
+                kind: "resolved".into(),
+                probability: None,
+                reason: String::new(),
+                delivered,
+                backend_ms: None,
+                input_tokens: None,
+            });
             continue;
         }
         let (outcome, ms, tokens, reason) = match app.backend.ask(&p.state, &app.cfg.question).await {
-            Ok(a) => { app.metrics.observe_ms("keenwake_backend", a.ms); (Ok(a.probability), Some(a.ms), a.input_tokens, String::new()) }
+            Ok(a) => {
+                app.metrics.observe_ms("keenwake_backend", a.ms);
+                (Ok(a.probability), Some(a.ms), a.input_tokens, String::new())
+            }
             Err(e) => {
                 app.metrics.inc("keenwake_backend_errors_total", &[]);
                 (Err(e.to_string()), None, None, format!("not triaged: backend unavailable ({e})"))
@@ -108,19 +142,34 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
         let r = finish(&app.cfg, &p, outcome);
         app.metrics.inc("keenwake_decisions_total", &[("kind", r.kind.as_str())]);
         let delivered = match r.target {
-            Target::DigestQueue => { app.store.queue_digest(p.event_seq); false }
+            Target::DigestQueue => {
+                app.store.queue_digest(p.event_seq);
+                false
+            }
             Target::Nothing => false,
             t => app.send(t, message(r.kind.as_str(), &p.alert, prob, &reason, &facts_line(&p.facts))).await,
         };
         let delivered = delivered && r.kind != Kind::Repeat;
-        app.store.insert_decision(&DecisionRow { event_seq: p.event_seq, decided_at: now, mode, kind: r.kind.as_str().into(),
-            probability: prob, reason, delivered: delivered && r.target != Target::Verdict, backend_ms: ms, input_tokens: tokens });
+        app.store.insert_decision(&DecisionRow {
+            event_seq: p.event_seq,
+            decided_at: now,
+            mode,
+            kind: r.kind.as_str().into(),
+            probability: prob,
+            reason,
+            delivered: delivered && r.target != Target::Verdict,
+            backend_ms: ms,
+            input_tokens: tokens,
+        });
     }
     200
 }
 
 #[derive(Clone)]
-struct Http { app: Arc<App>, queue: Queue }
+struct Http {
+    app: Arc<App>,
+    queue: Queue,
+}
 
 /// Replies before the alert is processed: the body is queued for the single worker, so a slow
 /// backend never makes the source wait, and alerts are decided in arrival order. Unknown sources

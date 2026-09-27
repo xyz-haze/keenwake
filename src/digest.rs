@@ -4,21 +4,30 @@ use crate::server::App;
 use serde_json::json;
 use std::sync::Arc;
 
-pub fn day_key(now: i64) -> String { format!("{}", now.div_euclid(86_400)) }
+pub fn day_key(now: i64) -> String {
+    format!("{}", now.div_euclid(86_400))
+}
 
 pub fn due(digest_at: &str, last_sent_day: Option<&str>, now: i64) -> bool {
-    let (h, m) = digest_at.split_once(':').map(|(h, m)| (h.parse::<i64>().unwrap_or(8), m.parse::<i64>().unwrap_or(0))).unwrap_or((8, 0));
+    let (h, m) = digest_at
+        .split_once(':')
+        .map(|(h, m)| (h.parse::<i64>().unwrap_or(8), m.parse::<i64>().unwrap_or(0)))
+        .unwrap_or((8, 0));
     let secs_today = now.rem_euclid(86_400);
     secs_today >= h * 3600 + m * 60 && last_sent_day != Some(day_key(now).as_str())
 }
 
 pub async fn tick(app: &App, now: i64) -> bool {
     let last = app.store.meta_get("digest_last_day");
-    if !due(&app.cfg.decision.digest_at, last.as_deref(), now) { return false; }
+    if !due(&app.cfg.decision.digest_at, last.as_deref(), now) {
+        return false;
+    }
     app.store.meta_set("digest_last_day", &day_key(now));
     let events = app.store.take_digest();
     let Some(url) = app.cfg.outputs.digest.as_deref() else { return false };
-    if events.is_empty() { return false; }
+    if events.is_empty() {
+        return false;
+    }
     let lines: Vec<String> = events.iter().map(|e| format!("- {} ({})", e.alert.summary, e.alert.env)).collect();
     let body = json!({
         "text": format!("[digest] {} alerts that did not need a ping:\n{}", events.len(), lines.join("\n")),
@@ -27,7 +36,9 @@ pub async fn tick(app: &App, now: i64) -> bool {
             "received_at": e.received_at})).collect::<Vec<_>>()},
     });
     let ok = app.sender.post(url, &body).await;
-    if !ok { app.metrics.inc("keenwake_undelivered_total", &[]); }
+    if !ok {
+        app.metrics.inc("keenwake_undelivered_total", &[]);
+    }
     ok
 }
 

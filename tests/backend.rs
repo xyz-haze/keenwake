@@ -1,7 +1,7 @@
 mod common;
+use common::{system_one_from_state, FakeHttp};
 use keenwake::backend::{request_body, Backend, BackendError};
 use keenwake::config::{BackendCfg, Question};
-use common::{system_one_from_state, FakeHttp};
 
 fn cfg(url: &str) -> BackendCfg {
     BackendCfg { url: url.into(), model: "jev-1.13.0".into(), api_key_env: None, timeout_ms: 300 }
@@ -47,5 +47,8 @@ async fn out_of_range_probability_is_invalid() {
 #[tokio::test]
 async fn unreachable_backend_is_transport_error() {
     let b = Backend::new(&cfg("http://127.0.0.1:9")).unwrap();
-    assert!(matches!(b.ask("x", &Question::default()).await, Err(BackendError::Transport(_)) | Err(BackendError::Timeout)));
+    assert!(matches!(
+        b.ask("x", &Question::default()).await,
+        Err(BackendError::Transport(_)) | Err(BackendError::Timeout)
+    ));
 }

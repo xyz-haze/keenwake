@@ -1,7 +1,7 @@
+use clap::{Parser, Subcommand};
 use keenwake::config::Config;
 use keenwake::server::{now_utc, router, App};
 use keenwake::store::Store;
-use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -44,7 +44,9 @@ const DRAIN: std::time::Duration = std::time::Duration::from_secs(8);
 
 /// Resolves on SIGINT (Ctrl-C) or SIGTERM (the signal a supervisor sends to stop a service).
 async fn shutdown_signal() {
-    let ctrl_c = async { let _ = tokio::signal::ctrl_c().await; };
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
     let terminate = async {
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("install SIGTERM handler")
@@ -98,8 +100,12 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Report { since, json } => {
             let store = Store::open(&cfg.store.path)?;
-            let r = keenwake::report::build(&store, now_utc() - keenwake::report::parse_since(&since)?, keenwake::report::JEV_USD_PER_MTOK,
-                cfg.decision.repeat_window_secs());
+            let r = keenwake::report::build(
+                &store,
+                now_utc() - keenwake::report::parse_since(&since)?,
+                keenwake::report::JEV_USD_PER_MTOK,
+                cfg.decision.repeat_window_secs(),
+            );
             if json {
                 println!("{}", serde_json::to_string_pretty(&r)?);
             } else {
@@ -110,8 +116,12 @@ async fn main() -> anyhow::Result<()> {
             let store = Store::open(&cfg.store.path)?;
             let app = App::new(cfg, store, now_utc)?;
             let changed = keenwake::report::replay(&app, now_utc() - keenwake::report::parse_since(&since)?).await;
-            if changed.is_empty() { println!("no decision changes"); }
-            for (seq, summary, old, new) in changed { println!("#{seq} {old} -> {new}  {summary}"); }
+            if changed.is_empty() {
+                println!("no decision changes");
+            }
+            for (seq, summary, old, new) in changed {
+                println!("#{seq} {old} -> {new}  {summary}");
+            }
         }
     }
     Ok(())

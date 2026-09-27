@@ -36,7 +36,9 @@ pub fn facts(events_before: &[Event], current: &Alert, current_at: i64) -> Facts
     let mut ended: Vec<(i64, i64)> = Vec::new();
     for e in events_before {
         match (e.alert.status, open_since) {
-            (Status::Firing, None) => { open_since = Some(e.received_at); }
+            (Status::Firing, None) => {
+                open_since = Some(e.received_at);
+            }
             (Status::Firing, Some(_)) => {}
             (Status::Resolved, Some(start)) => {
                 ended.push((start, (e.received_at - start).max(0) / 60));
@@ -50,12 +52,17 @@ pub fn facts(events_before: &[Event], current: &Alert, current_at: i64) -> Facts
         Some(start) => (current_at - start).max(0) / 60,
         None => 0,
     };
-    let mut durations: Vec<i64> = ended.into_iter()
-        .filter(|(start, _)| *start >= window_start)
-        .map(|(_, d)| d)
-        .collect();
+    let mut durations: Vec<i64> =
+        ended.into_iter().filter(|(start, _)| *start >= window_start).map(|(_, d)| d).collect();
     let episodes_7d = durations.len() as u32;
     durations.sort_unstable();
     let median_minutes = if durations.is_empty() { None } else { Some(durations[(durations.len() - 1) / 2]) };
-    Facts { env: current.env.clone(), firing, minutes, episodes_7d, resolved_7d: durations.len() as u32, median_minutes }
+    Facts {
+        env: current.env.clone(),
+        firing,
+        minutes,
+        episodes_7d,
+        resolved_7d: durations.len() as u32,
+        median_minutes,
+    }
 }

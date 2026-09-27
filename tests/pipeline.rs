@@ -14,10 +14,19 @@ fn cfg(mode: &str) -> Config {
         "[backend]\nurl='http://x'\nmodel='m-1'\n[decision]\nmode='{mode}'\n[outputs]\nping='http://p'\nescalate='http://e'\ndigest='http://d'\n"
     )).unwrap()
 }
-fn red() -> Redactor { Redactor::new(&["email".into(), "ip".into(), "token".into()]) }
+fn red() -> Redactor {
+    Redactor::new(&["email".into(), "ip".into(), "token".into()])
+}
 fn alert(status: Status) -> Alert {
-    Alert { source: "s".into(), status, identity: "id".into(), summary: "Disk full on ops@example.com".into(),
-            details: "".into(), env: "prod".into(), severity: "critical".into() }
+    Alert {
+        source: "s".into(),
+        status,
+        identity: "id".into(),
+        summary: "Disk full on ops@example.com".into(),
+        details: "".into(),
+        env: "prod".into(),
+        severity: "critical".into(),
+    }
 }
 
 #[test]
@@ -51,8 +60,17 @@ fn repeated_firing_after_ping_is_repeat_in_gate() {
     let p1 = prepare(&s, &red(), alert(Status::Firing), 1_800_000_000, WINDOW);
     let r1 = finish(&c, &p1, Ok(0.9));
     assert_eq!(r1.target, Target::Ping);
-    s.insert_decision(&DecisionRow { event_seq: p1.event_seq, decided_at: 1_800_000_000, mode: "gate".into(), kind: "ping".into(),
-        probability: Some(0.9), reason: "".into(), delivered: true, backend_ms: None, input_tokens: None });
+    s.insert_decision(&DecisionRow {
+        event_seq: p1.event_seq,
+        decided_at: 1_800_000_000,
+        mode: "gate".into(),
+        kind: "ping".into(),
+        probability: Some(0.9),
+        reason: "".into(),
+        delivered: true,
+        backend_ms: None,
+        input_tokens: None,
+    });
     let p2 = prepare(&s, &red(), alert(Status::Firing), 1_800_000_060, WINDOW);
     assert!(p2.already_pinged);
     assert_eq!(finish(&c, &p2, Ok(0.9)).kind, Kind::Repeat);
@@ -73,9 +91,17 @@ fn replay_reproduces_repeat() {
         let pr = prepare(&s, &red(), alert(*status), 1_800_000_000 + 60 * i as i64, WINDOW);
         if pr.needs_model {
             let r = finish(&c, &pr, Ok(p));
-            s.insert_decision(&DecisionRow { event_seq: pr.event_seq, decided_at: 1_800_000_000 + 60 * i as i64,
-                mode: "gate".into(), kind: r.kind.as_str().into(), probability: Some(p), reason: String::new(),
-                delivered: r.target == Target::Ping, backend_ms: None, input_tokens: None });
+            s.insert_decision(&DecisionRow {
+                event_seq: pr.event_seq,
+                decided_at: 1_800_000_000 + 60 * i as i64,
+                mode: "gate".into(),
+                kind: r.kind.as_str().into(),
+                probability: Some(p),
+                reason: String::new(),
+                delivered: r.target == Target::Ping,
+                backend_ms: None,
+                input_tokens: None,
+            });
             first.push((pr.event_seq, r.kind));
         }
     }
@@ -86,8 +112,14 @@ fn replay_reproduces_repeat() {
         let ev = s.events_since(0).into_iter().find(|e| e.seq == *seq).unwrap();
         let before = s.events_for(&ev.alert.identity, ev.received_at - keenwake::history::WINDOW_SECS, *seq);
         let f = keenwake::history::facts(&before, &ev.alert, ev.received_at);
-        let pr = keenwake::pipeline::Prepared { event_seq: *seq, alert: ev.alert.clone(), facts: f,
-            state: String::new(), already_pinged: s.episode_pinged(&ev.alert.identity, *seq, ev.received_at - WINDOW), needs_model: true };
+        let pr = keenwake::pipeline::Prepared {
+            event_seq: *seq,
+            alert: ev.alert.clone(),
+            facts: f,
+            state: String::new(),
+            already_pinged: s.episode_pinged(&ev.alert.identity, *seq, ev.received_at - WINDOW),
+            needs_model: true,
+        };
         assert_eq!(finish(&c, &pr, Ok(p)).kind, *kind);
     }
 }
