@@ -68,6 +68,9 @@ model = "jev-1.13.0"
 api_key_env = "TYPESAFE_API_KEY"
 ```
 
+The key itself never goes in the file: `api_key_env` only names the environment variable that
+holds it (`-e TYPESAFE_API_KEY` below, or `--env-file .env`).
+
 For a fully local setup, run the Laya sidecar from [`sidecar/`](sidecar) and point `url` at it.
 
 **2. Run.**
