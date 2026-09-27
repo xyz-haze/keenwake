@@ -1,4 +1,3 @@
-# Grafana webhook contact point. One preset per alerting tool, not per alert.
 alerts = "/alerts"
 
 [fields]

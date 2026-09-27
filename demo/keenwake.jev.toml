@@ -1,5 +1,4 @@
-# keenwake.toml with the hosted Jev backend instead of the local Laya sidecar.
-# Selected by `KEENWAKE_DEMO_BACKEND=jev ./e2e.sh`, through docker-compose.jev.yml.
+# Used by `KEENWAKE_DEMO_BACKEND=jev ./e2e.sh`, through docker-compose.jev.yml.
 [backend]
 url = "https://api.typesafe.ai"
 model = "jev-1.13.0"

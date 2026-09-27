@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fuzzes the webhook entry point for 10 minutes. Needs nightly, so it runs in its own image
-# and is not part of CI. Usage: scripts/fuzz.sh [seconds]
+# Needs nightly, so it runs in its own image and is not part of CI.
+# Usage: scripts/fuzz.sh [seconds, default 600]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 exec docker run --rm -u "$(id -u):$(id -g)" -e CARGO_HOME=/w/.cargo-cache -v "$PWD":/w -w /w \

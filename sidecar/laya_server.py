@@ -8,7 +8,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-MAX_BODY_BYTES = 1_048_576  # 1 MiB
+MAX_BODY_BYTES = 1_048_576
 
 MODEL_REPO = "convaiinnovations/laya"
 # A commit of MODEL_REPO, so a push to its main branch never changes the weights keenwake runs.
@@ -19,10 +19,7 @@ CHECKPOINT_FILES = ("rl_agent_config.json", "model.safetensors", "tokenizer/*", 
 
 
 def load_agent(laya, snapshot_download, sub):
-    """Loads checkpoint `sub` of MODEL_REPO at MODEL_REVISION.
-
-    laya.load() takes no revision, so the pinned snapshot is downloaded here and loaded from disk.
-    """
+    """laya.load() takes no revision: download the pinned snapshot here, then load it from disk."""
     prefix = f"{sub}/" if sub else ""
     path = snapshot_download(
         MODEL_REPO,

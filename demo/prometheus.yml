@@ -4,8 +4,7 @@ alerting:
   alertmanagers: [{static_configs: [{targets: ["alertmanager:9093"]}]}]
 scrape_configs:
   - job_name: fakeapp
-    # fakeapp's own gauges carry an "instance" label (worker-1, api-1, db-staging); without this,
-    # Prometheus overwrites it with the scrape target address (fakeapp:9100) and every alert's
-    # {{ $labels.instance }} renders wrong.
+    # fakeapp's gauges carry their own "instance" label (worker-1, ...): without this, Prometheus
+    # overwrites it with the scrape target (fakeapp:9100).
     honor_labels: true
     static_configs: [{targets: ["fakeapp:9100"]}]
