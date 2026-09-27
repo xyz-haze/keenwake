@@ -115,9 +115,9 @@ If you like what you see, move one low-stakes route to gate mode first. See
 
 Ideas, built if people ask for them in an issue:
 
-- Claude rereads past decisions and turns what it finds into rules for the fast model, with a human
+- A larger LLM rereads past decisions and turns what it finds into rules for the fast model, with a human
   settling only the disagreements.
-- Claude gathers logs and metrics before an escalated page goes out.
+- An LLM gathers logs and metrics before an escalated page goes out.
 - Import past alert history from the on-call tool, so keenwake does not start blind.
 
 ## License
