@@ -99,6 +99,16 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
             return 200;
         }
     };
+    // Each alert costs a backend call: a flood in one body is not decided alert by alert.
+    let cap = app.cfg.server.max_alerts_per_body;
+    if alerts.len() > cap {
+        let n = alerts.len();
+        eprintln!("keenwake: {n} alerts in one body from source {source}, over max_alerts_per_body = {cap}");
+        app.metrics.inc("keenwake_oversized_bodies_total", &[("source", source)]);
+        let text = format!("[untriaged] {n} alerts in one body from {source}, over the limit of {cap}");
+        send_untriaged_raw(app, source, body, text).await;
+        return 200;
+    }
     for alert in alerts {
         app.metrics.inc("keenwake_alerts_total", &[("source", source)]);
         let now = (app.clock)();

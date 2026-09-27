@@ -127,3 +127,12 @@ fn shipped_presets_read_their_fixtures() {
         assert!(alerts.iter().all(|a| a.env == "prod"));
     }
 }
+
+#[test]
+fn max_alerts_per_body_defaults_to_500_and_must_be_positive() {
+    let base = "[backend]\nurl = 'http://b'\nmodel = 'm-1'\n";
+    assert_eq!(Config::from_toml(base).unwrap().server.max_alerts_per_body, 500);
+    let c = Config::from_toml(&format!("{base}[server]\nmax_alerts_per_body = 20\n")).unwrap();
+    assert_eq!(c.server.max_alerts_per_body, 20);
+    assert!(Config::from_toml(&format!("{base}[server]\nmax_alerts_per_body = 0\n")).is_err());
+}

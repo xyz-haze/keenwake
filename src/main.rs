@@ -92,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
                     tokio::time::sleep(Duration::from_secs(60)).await;
                 }
             });
-            let (queue, worker) = worker::start(app.clone(), worker::QUEUE_CAPACITY);
+            let (queue, worker) = worker::start(app.clone(), worker::QUEUE_CAPACITY, worker::QUEUE_MAX_BYTES);
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             eprintln!("keenwake listening on {listen}, mode {:?}", app.cfg.decision.mode);
             // On a stop signal, serve stops accepting and returns once open requests are answered;

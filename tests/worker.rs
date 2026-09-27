@@ -8,7 +8,7 @@ use keenwake::digest::guarded_tick;
 use keenwake::mapping::{Alert, Status};
 use keenwake::server::{router, App};
 use keenwake::store::Store;
-use keenwake::worker::{queue, start, QUEUE_CAPACITY};
+use keenwake::worker::{queue, start, QUEUE_CAPACITY, QUEUE_MAX_BYTES};
 use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -74,7 +74,7 @@ async fn resolved_during_backend_call_follows_its_ping() {
     .await;
     let out = FakeHttp::start(sink()).await;
     let (a, _d) = shared_app(Mode::Gate, &be, &out, Store::memory());
-    let (q, _worker) = start(a.clone(), QUEUE_CAPACITY);
+    let (q, _worker) = start(a.clone(), QUEUE_CAPACITY, QUEUE_MAX_BYTES);
     let r = router(a.clone(), q);
     r.clone()
         .oneshot(Request::post("/hook/grafana").body(Body::from(grafana("disk", "f9", "firing"))).unwrap())
@@ -93,7 +93,7 @@ async fn full_queue_replies_503_and_unknown_source_stays_404() {
     let be = FakeHttp::start(system_one_from_state()).await;
     let out = FakeHttp::start(sink()).await;
     let (a, _d) = shared_app(Mode::Gate, &be, &out, Store::memory());
-    let (q, _rx) = queue(1); // no worker: nothing drains it
+    let (q, _rx) = queue(1, QUEUE_MAX_BYTES); // no worker: nothing drains it
     let r = router(a.clone(), q);
     assert_eq!(post(&r, "grafana", grafana("p=0.90 a", "f1", "firing")).await, 200);
     assert_eq!(post(&r, "grafana", grafana("p=0.90 b", "f2", "firing")).await, 503);
@@ -103,13 +103,44 @@ async fn full_queue_replies_503_and_unknown_source_stays_404() {
     assert!(m.contains("keenwake_unknown_source_total 1"), "{m}");
 }
 
+/// 10 000 queued bodies of up to 1 MiB each would be 10 GB: the queue is also bounded in bytes.
+#[tokio::test]
+async fn queue_over_its_byte_budget_replies_503() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = shared_app(Mode::Gate, &be, &out, Store::memory());
+    let body = grafana("p=0.90 a", "f1", "firing");
+    let (q, _rx) = queue(100, 2 * body.len()); // no worker: nothing drains it
+    let r = router(a.clone(), q);
+    assert_eq!(post(&r, "grafana", body.clone()).await, 200);
+    assert_eq!(post(&r, "grafana", body.clone()).await, 200);
+    assert_eq!(post(&r, "grafana", body).await, 503);
+    assert!(a.metrics.render().contains("keenwake_queue_full_total 1"));
+    assert_eq!(QUEUE_MAX_BYTES, 64 * 1024 * 1024);
+}
+
+#[tokio::test]
+async fn processed_bodies_give_their_bytes_back() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = shared_app(Mode::Gate, &be, &out, Store::memory());
+    let body = |i: usize| grafana("p=0.90 a", &format!("f{i}"), "firing");
+    let (q, _worker) = start(a.clone(), QUEUE_CAPACITY, body(0).len());
+    let r = router(a.clone(), q);
+    for i in 0..3 {
+        assert_eq!(post(&r, "grafana", body(i)).await, 200);
+        wait_for(&out, i + 1).await;
+    }
+    assert_eq!(out.bodies().len(), 3);
+}
+
 #[tokio::test]
 async fn panic_while_processing_sends_untriaged_in_gate_and_the_next_webhook_still_works() {
     let be = FakeHttp::start(system_one_from_state()).await;
     let out = FakeHttp::start(sink()).await;
     let dir = tempfile::tempdir().unwrap();
     let (a, _d) = shared_app(Mode::Gate, &be, &out, store_with_trigger(&dir, BOOM_ON_EVENT));
-    let (q, _worker) = start(a.clone(), QUEUE_CAPACITY);
+    let (q, _worker) = start(a.clone(), QUEUE_CAPACITY, QUEUE_MAX_BYTES);
     let r = router(a.clone(), q);
     assert_eq!(post(&r, "grafana", grafana("boom p=0.10 mail ops@example.com", "f1", "firing")).await, 200);
     assert_eq!(post(&r, "grafana", grafana("p=0.90 disk", "f2", "firing")).await, 200);
@@ -130,7 +161,7 @@ async fn panic_while_processing_in_observe_is_only_counted() {
     let out = FakeHttp::start(sink()).await;
     let dir = tempfile::tempdir().unwrap();
     let (a, _d) = shared_app(Mode::Observe, &be, &out, store_with_trigger(&dir, BOOM_ON_EVENT));
-    let (q, _worker) = start(a.clone(), QUEUE_CAPACITY);
+    let (q, _worker) = start(a.clone(), QUEUE_CAPACITY, QUEUE_MAX_BYTES);
     let r = router(a.clone(), q);
     post(&r, "grafana", grafana("boom", "f1", "firing")).await;
     post(&r, "grafana", grafana("p=0.90 disk", "f2", "firing")).await;
@@ -151,7 +182,7 @@ async fn worker_drains_queued_webhooks_once_the_router_is_dropped() {
     .await;
     let out = FakeHttp::start(sink()).await;
     let (a, _d) = shared_app(Mode::Gate, &be, &out, Store::memory());
-    let (q, worker) = start(a.clone(), QUEUE_CAPACITY);
+    let (q, worker) = start(a.clone(), QUEUE_CAPACITY, QUEUE_MAX_BYTES);
     let r = router(a.clone(), q);
     for i in 0..3 {
         assert_eq!(post(&r, "grafana", grafana("disk", &format!("f{i}"), "firing")).await, 200);

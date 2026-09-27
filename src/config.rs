@@ -193,13 +193,20 @@ impl Default for RedactCfg {
 pub struct ServerCfg {
     #[serde(default = "d_listen")]
     pub listen: String,
+    /// A body with more alerts is not decided alert by alert (one backend call each): it is
+    /// handled like an unreadable one.
+    #[serde(default = "d_max_alerts_per_body")]
+    pub max_alerts_per_body: usize,
 }
 fn d_listen() -> String {
     "0.0.0.0:8080".into()
 }
+fn d_max_alerts_per_body() -> usize {
+    500
+}
 impl Default for ServerCfg {
     fn default() -> Self {
-        ServerCfg { listen: d_listen() }
+        ServerCfg { listen: d_listen(), max_alerts_per_body: d_max_alerts_per_body() }
     }
 }
 
@@ -352,6 +359,9 @@ impl Config {
         }
         if d.repeat_window_hours == 0 {
             return Err(invalid("decision.repeat_window_hours must be greater than 0"));
+        }
+        if self.server.max_alerts_per_body == 0 {
+            return Err(invalid("server.max_alerts_per_body must be greater than 0"));
         }
         if d.mode == Mode::Gate {
             let o = &self.outputs;

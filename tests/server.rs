@@ -109,7 +109,7 @@ async fn http_router_limits_body_size() {
     let out = FakeHttp::start(sink()).await;
     let (a, _d) = short_timeout_app(Mode::Observe, &be, &out);
     let a = Arc::new(a);
-    let (q, _worker) = worker::start(a.clone(), worker::QUEUE_CAPACITY);
+    let (q, _worker) = worker::start(a.clone(), worker::QUEUE_CAPACITY, worker::QUEUE_MAX_BYTES);
     let r = router(a, q);
     let big = vec![b'a'; 2 * 1024 * 1024];
     let resp = r.clone().oneshot(Request::post("/hook/grafana").body(Body::from(big)).unwrap()).await.unwrap();
@@ -132,7 +132,7 @@ async fn hook_replies_before_a_slow_backend_finishes() {
     cfg.backend.timeout_ms = 10_000;
     let (a, _d) = app(cfg, Store::memory(), || T0);
     let a = Arc::new(a);
-    let (q, _worker) = worker::start(a.clone(), worker::QUEUE_CAPACITY);
+    let (q, _worker) = worker::start(a.clone(), worker::QUEUE_CAPACITY, worker::QUEUE_MAX_BYTES);
     let r = router(a, q);
     let body = grafana("slow", "f1", "firing");
     let t = Instant::now();
@@ -258,4 +258,56 @@ async fn replay_since_inside_the_repeat_window_knows_the_earlier_ping() {
     let stored: Vec<&str> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind.as_str()).collect();
     assert_eq!(stored, vec!["ping", "repeat"]);
     assert_eq!(replay(&a, T0 + 1800).await, vec![]);
+}
+
+/// A Grafana body carrying `n` alerts that would each ping.
+fn many_alerts(n: usize) -> Vec<u8> {
+    let alerts: Vec<_> = (0..n)
+        .map(|i| {
+            serde_json::json!({"status": "firing", "fingerprint": format!("f{i}"),
+            "labels": {"env": "prod"}, "annotations": {"summary": format!("p=0.90 n{i} ops@example.com")}})
+        })
+        .collect();
+    serde_json::json!({"alerts": alerts}).to_string().into_bytes()
+}
+
+/// One POST with thousands of alerts must not turn into thousands of backend calls: over
+/// `server.max_alerts_per_body` (default 500), the body is handled like an unreadable one.
+#[tokio::test]
+async fn gate_body_over_the_alert_cap_calls_no_backend_and_pings_once() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = short_timeout_app(Mode::Gate, &be, &out);
+    assert_eq!(a.cfg.server.max_alerts_per_body, 500);
+    assert_eq!(handle_body(&a, "grafana", &many_alerts(501)).await, 200);
+    assert!(be.bodies().is_empty(), "no backend call");
+    let sent = out.bodies();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["keenwake"]["decision"], "untriaged");
+    assert!(sent[0]["text"].as_str().unwrap().contains("501 alerts in one body"), "{}", sent[0]["text"]);
+    assert!(!sent[0].to_string().contains("ops@example.com"), "the raw excerpt is redacted");
+    assert!(a.store.decisions_since(0).is_empty());
+    assert!(a.metrics.render().contains("keenwake_oversized_bodies_total{source=\"grafana\"} 1"));
+}
+
+#[tokio::test]
+async fn observe_body_over_the_alert_cap_is_only_counted() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let (a, _d) = short_timeout_app(Mode::Observe, &be, &out);
+    handle_body(&a, "grafana", &many_alerts(501)).await;
+    assert!(be.bodies().is_empty());
+    assert!(out.bodies().is_empty());
+    assert!(a.metrics.render().contains("keenwake_oversized_bodies_total{source=\"grafana\"} 1"));
+}
+
+#[tokio::test]
+async fn body_at_the_alert_cap_is_decided() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let mut cfg = config(Mode::Gate, &be.url, &out.url);
+    cfg.server.max_alerts_per_body = 3;
+    let (a, _d) = app(cfg, Store::memory(), || T0);
+    handle_body(&a, "grafana", &many_alerts(3)).await;
+    assert_eq!(out.kinds(), vec!["ping", "ping", "ping"]);
 }
