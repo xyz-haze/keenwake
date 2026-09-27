@@ -61,7 +61,12 @@ impl Sender {
         // is atomic, whereas writeln!'s piecemeal writes could interleave and corrupt lines.
         let mut s = line.to_string();
         s.push('\n');
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&self.undelivered) {
+        let mut open = std::fs::OpenOptions::new();
+        open.create(true).append(true);
+        // Lines hold webhook URLs, which often embed a secret: owner-only when created.
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+        if let Ok(mut f) = open.open(&self.undelivered) {
             let _ = f.write_all(s.as_bytes());
         }
     }

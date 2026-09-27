@@ -65,3 +65,16 @@ async fn second_attempt_success_counts_as_delivered() {
     assert!(s.post(&fake.url, &serde_json::json!({})).await);
     assert!(!dir.path().join("u.jsonl").exists());
 }
+
+/// Undelivered lines hold webhook URLs, which often embed a secret: owner-only file.
+#[cfg(unix)]
+#[test]
+fn undelivered_file_is_created_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("u.jsonl");
+    let s = Sender::new(path.to_str().unwrap().into(), 1).unwrap();
+    s.write_undelivered("https://hooks.slack.com/services/T0/B0/secret", &serde_json::json!({}));
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "mode {mode:o}");
+}
