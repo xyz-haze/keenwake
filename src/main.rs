@@ -115,8 +115,12 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Report { since, json } => {
             let store = Store::open(&cfg.store.path)?;
-            let r =
-                report::build(&store, now_utc() - since, report::JEV_USD_PER_MTOK, cfg.decision.repeat_window_secs());
+            let r = report::build(
+                &store,
+                now_utc() - since,
+                report::list_price_per_mtok(&cfg.backend),
+                cfg.decision.repeat_window_secs(),
+            );
             if json {
                 println!("{}", serde_json::to_string_pretty(&r)?);
             } else {

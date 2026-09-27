@@ -1,6 +1,6 @@
 //! Observe-mode report and replay diff.
 
-use crate::config::Mode;
+use crate::config::{BackendCfg, Mode};
 use crate::decide::{repeat_floor, route, Kind, Sent, Target};
 use crate::history::{facts, Facts, WINDOW_SECS};
 use crate::server::App;
@@ -11,6 +11,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 pub const JEV_USD_PER_MTOK: f64 = 0.042;
+
+/// The list price per million input tokens of `b`, known only for Jev: the hosted API, or a Jev
+/// model behind another url. Any other backend (a local Laya) gets no cost estimate.
+pub fn list_price_per_mtok(b: &BackendCfg) -> Option<f64> {
+    let hosted = reqwest::Url::parse(&b.url).is_ok_and(|u| u.host_str() == Some("api.typesafe.ai"));
+    (hosted || b.model.starts_with("jev")).then_some(JEV_USD_PER_MTOK)
+}
 
 /// How many decisions the text report lists; `--json` has them all.
 const LISTED_ROWS: usize = 30;
@@ -43,7 +50,8 @@ pub struct Report {
     pub backend_errors: u64,
     pub median_backend_ms: Option<i64>,
     pub input_tokens: i64,
-    pub est_cost_usd: f64,
+    /// `None` when the backend has no known list price.
+    pub est_cost_usd: Option<f64>,
     pub rows: Vec<ReportRow>,
     /// Decisions gate would send to no one: digests and repeats. The name is kept for `--json`.
     pub avoidable_pings: u64,
@@ -114,7 +122,7 @@ fn stored_facts(store: &Store, e: &Event) -> Facts {
     facts(&before, &e.alert, e.received_at)
 }
 
-pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64) -> Report {
+pub fn build(store: &Store, since: i64, price_per_mtok: Option<f64>, repeat_window: i64) -> Report {
     let rows = store.decisions_since(since);
     let mut by_kind = BTreeMap::new();
     let mut ms: Vec<i64> = Vec::new();
@@ -165,7 +173,7 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
         backend_errors: errors,
         median_backend_ms: ms.get(ms.len().saturating_sub(1) / 2).copied().filter(|_| !ms.is_empty()),
         input_tokens: tokens,
-        est_cost_usd: tokens as f64 * price_per_mtok / 1e6,
+        est_cost_usd: price_per_mtok.map(|p| tokens as f64 * p / 1e6),
         rows: out,
         avoidable_pings: avoidable,
     }
@@ -200,7 +208,10 @@ impl fmt::Display for Report {
         if let Some(m) = self.median_backend_ms {
             writeln!(f, "median backend latency: {m} ms")?;
         }
-        writeln!(f, "input tokens: {} (about ${:.4} at Jev list price)", self.input_tokens, self.est_cost_usd)?;
+        match self.est_cost_usd {
+            Some(usd) => writeln!(f, "input tokens: {} (about ${usd:.4} at Jev list price)", self.input_tokens)?,
+            None => writeln!(f, "input tokens: {}", self.input_tokens)?,
+        }
         // The counts do not say which alerts were held back: list the latest decisions, oldest first.
         if self.rows.is_empty() {
             return Ok(());
