@@ -1,0 +1,10 @@
+# Grafana webhook contact point. One preset per alerting tool, not per alert.
+alerts = "/alerts"
+
+[fields]
+status = { path = "/status" }
+identity = { path = "/fingerprint" }
+summary = { first_of = ["/annotations/summary", "/labels/alertname"] }
+details = { first_of = ["/annotations/description", "/annotations/message"] }
+env = { first_of = ["/labels/env", "/labels/environment"] }
+severity = { path = "/labels/severity" }
