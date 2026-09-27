@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -71,6 +72,19 @@ pub struct Fields {
     pub severity: Option<FieldSpec>,
 }
 
+impl Fields {
+    fn named(&self) -> [(&'static str, Option<&FieldSpec>); 6] {
+        [
+            ("status", Some(&self.status)),
+            ("identity", self.identity.as_ref()),
+            ("summary", Some(&self.summary)),
+            ("details", self.details.as_ref()),
+            ("env", self.env.as_ref()),
+            ("severity", self.severity.as_ref()),
+        ]
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SourceSpec {
@@ -121,15 +135,15 @@ fn translate(v: String, map: Option<&BTreeMap<String, String>>) -> String {
     }
 }
 
-fn render(template: &str, item: &Value) -> String {
+/// Expands each `{key}` of `template` with `value(key)`; an unclosed `{` is kept as text.
+fn expand(template: &str, mut value: impl FnMut(&str) -> String) -> String {
     let mut out = String::new();
     let mut rest = template;
     while let Some(start) = rest.find('{') {
         out.push_str(&rest[..start]);
         match rest[start..].find('}') {
             Some(len) => {
-                let key = &rest[start + 1..start + len];
-                out.push_str(&lookup(item, key).unwrap_or_default());
+                out.push_str(&value(&rest[start + 1..start + len]));
                 rest = &rest[start + len + 1..];
             }
             None => {
@@ -140,6 +154,10 @@ fn render(template: &str, item: &Value) -> String {
     }
     out.push_str(rest);
     out
+}
+
+fn render(template: &str, item: &Value) -> String {
+    expand(template, |key| lookup(item, key).unwrap_or_default())
 }
 
 fn resolve(spec: &FieldSpec, item: &Value) -> Option<String> {
@@ -184,22 +202,84 @@ pub struct BadItem {
     pub item: Value,
 }
 
-/// Maps each alert of the body on its own, so one malformed alert does not hide its
-/// neighbours. `Err` only when the body as a whole is unreadable.
-pub fn extract_each(name: &str, spec: &SourceSpec, body: &[u8]) -> Result<Vec<Result<Alert, BadItem>>, MapError> {
-    let root: Value = serde_json::from_slice(body).map_err(|_| MapError::NotJson)?;
-    let map = |item: &Value| one(name, &spec.fields, item).map_err(|error| BadItem { error, item: item.clone() });
+/// The alert items of a parsed body: the root itself when the spec names no alerts pointer.
+fn items<'a>(spec: &SourceSpec, root: &'a Value) -> Result<Vec<&'a Value>, MapError> {
     if spec.alerts.is_empty() {
-        return Ok(vec![map(&root)]);
+        return Ok(vec![root]);
     }
     let items = root
         .pointer(&pointer(&spec.alerts))
         .and_then(Value::as_array)
         .ok_or_else(|| MapError::NoAlerts(spec.alerts.clone()))?;
-    Ok(items.iter().map(map).collect())
+    Ok(items.iter().collect())
+}
+
+/// Maps each alert of the body on its own, so one malformed alert does not hide its
+/// neighbours. `Err` only when the body as a whole is unreadable.
+pub fn extract_each(name: &str, spec: &SourceSpec, body: &[u8]) -> Result<Vec<Result<Alert, BadItem>>, MapError> {
+    let root: Value = serde_json::from_slice(body).map_err(|_| MapError::NotJson)?;
+    let map = |item: &Value| one(name, &spec.fields, item).map_err(|error| BadItem { error, item: item.clone() });
+    Ok(items(spec, &root)?.into_iter().map(map).collect())
 }
 
 /// Like `extract_each`, but the first malformed alert fails the whole body.
 pub fn extract(name: &str, spec: &SourceSpec, body: &[u8]) -> Result<Vec<Alert>, MapError> {
     extract_each(name, spec, body)?.into_iter().map(|r| r.map_err(|b| b.error)).collect()
+}
+
+/// A field reference of a source spec that found nothing in one alert of a payload.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Unresolved {
+    /// Index of the alert in the payload.
+    pub alert: usize,
+    pub field: &'static str,
+    /// The pointer that missed; for `first_of`, every candidate, comma-separated.
+    pub pointer: String,
+}
+
+impl fmt::Display for Unresolved {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "alert {}, field {}: {} resolved to nothing", self.alert, self.field, self.pointer)
+    }
+}
+
+/// The pointers of `spec` that find nothing in `item`. A `first_of` misses only when every
+/// candidate does: falling through to a later one is what it is for.
+fn misses(spec: &FieldSpec, item: &Value) -> Vec<String> {
+    match spec {
+        FieldSpec::Path { path, .. } => lookup(item, path).is_none().then(|| pointer(path)).into_iter().collect(),
+        FieldSpec::FirstOf { first_of, .. } => {
+            if first_of.iter().any(|p| lookup(item, p).is_some()) {
+                vec![]
+            } else {
+                vec![first_of.iter().map(|p| pointer(p)).collect::<Vec<_>>().join(", ")]
+            }
+        }
+        FieldSpec::Const { .. } => vec![],
+        FieldSpec::Template { template } => {
+            let mut missed = Vec::new();
+            expand(template, |key| {
+                if lookup(item, key).is_none() {
+                    missed.push(pointer(key));
+                }
+                String::new()
+            });
+            missed
+        }
+    }
+}
+
+/// Every field reference that resolves to nothing in `body`, for `check-source`. `serve` does not
+/// call this: there a missing optional field is normal and falls back to its default.
+pub fn unresolved(spec: &SourceSpec, body: &[u8]) -> Result<Vec<Unresolved>, MapError> {
+    let root: Value = serde_json::from_slice(body).map_err(|_| MapError::NotJson)?;
+    let mut out = Vec::new();
+    for (alert, item) in items(spec, &root)?.into_iter().enumerate() {
+        for (field, fs) in spec.fields.named() {
+            for pointer in fs.map(|fs| misses(fs, item)).unwrap_or_default() {
+                out.push(Unresolved { alert, field, pointer });
+            }
+        }
+    }
+    Ok(out)
 }

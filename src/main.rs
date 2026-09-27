@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use keenwake::config::Config;
-use keenwake::mapping::extract;
+use keenwake::mapping::{extract, unresolved};
 use keenwake::pipeline::prepare;
 use keenwake::redact::Redactor;
 use keenwake::report::{self, parse_since};
@@ -72,13 +72,22 @@ async fn main() -> anyhow::Result<()> {
     match cli.cmd {
         Cmd::CheckSource { source, payload } => {
             let spec = cfg.sources.get(&source).ok_or_else(|| anyhow::anyhow!("unknown source {source}"))?;
-            let alerts = extract(&source, spec, &std::fs::read(payload)?)?;
+            let body = std::fs::read(payload)?;
+            // Before extracting, so a missing required field is explained by the pointer that missed.
+            let warnings = unresolved(spec, &body)?;
+            for w in &warnings {
+                eprintln!("warning: {w}");
+            }
+            let alerts = extract(&source, spec, &body)?;
             let redactor = Redactor::new(&cfg.redact.patterns);
             let store = Store::memory();
             for a in alerts {
                 println!("{a:#?}");
                 let p = prepare(&store, &redactor, a, now_utc(), cfg.decision.repeat_window_secs());
                 println!("state sent to the model:\n  {}\n", p.state);
+            }
+            if !warnings.is_empty() {
+                anyhow::bail!("{} field reference(s) resolved to nothing, see the warnings above", warnings.len());
             }
         }
         Cmd::Serve => {

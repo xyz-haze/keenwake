@@ -116,3 +116,51 @@ async fn replay_repeat_suppression_is_bounded_by_the_window() {
     let (app, _d) = gate_replay_app(&fake, s, || T0 + 31 * 86_400);
     assert_eq!(replay(&app, 0).await, vec![]);
 }
+
+const MIN_TOML: &str = r#"
+[backend]
+url = "https://api.typesafe.ai"
+model = "jev-1.13.0"
+
+[source.probe]
+[source.probe.fields]
+status = { const = "firing" }
+summary = { template = "{probe/name}: {result/eror}" }
+env = { path = "/labels/stage" }
+"#;
+
+/// Runs the real binary on `payload` with a `probe` source, and returns (exit ok, stdout, stderr).
+fn check_source(payload: &str) -> (bool, String, String) {
+    let d = tempfile::tempdir().unwrap();
+    let cfg = d.path().join("keenwake.toml");
+    let body = d.path().join("payload.json");
+    std::fs::write(&cfg, MIN_TOML).unwrap();
+    std::fs::write(&body, payload).unwrap();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_keenwake"))
+        .arg("--config")
+        .arg(&cfg)
+        .args(["check-source", "--source", "probe"])
+        .arg(&body)
+        .output()
+        .unwrap();
+    (out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into())
+}
+
+/// A typo in a template key or an env path used to yield "api-health: " and "unknown" silently.
+#[test]
+fn check_source_warns_and_fails_on_references_that_resolve_to_nothing() {
+    let (ok, stdout, stderr) = check_source(r#"{"probe": {"name": "api-health"}, "result": {"error": "timeout"}}"#);
+    assert!(!ok, "a warning must fail check-source\n{stderr}");
+    assert!(stderr.contains("warning: alert 0, field summary: /result/eror resolved to nothing"), "{stderr}");
+    assert!(stderr.contains("warning: alert 0, field env: /labels/stage resolved to nothing"), "{stderr}");
+    assert!(stdout.contains("state sent to the model"), "the extraction is still shown\n{stdout}");
+}
+
+#[test]
+fn check_source_is_quiet_and_succeeds_when_everything_resolves() {
+    let (ok, _, stderr) = check_source(
+        r#"{"probe": {"name": "api-health"}, "result": {"eror": "timeout"}, "labels": {"stage": "prod"}}"#,
+    );
+    assert!(ok, "{stderr}");
+    assert!(!stderr.contains("warning"), "{stderr}");
+}
