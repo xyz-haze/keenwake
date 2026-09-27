@@ -1,16 +1,15 @@
 # Add a source
 
-A source is one alerting tool, not one alert. All the alerts a tool sends share its webhook
-format, even if that tool has hundreds of different alert rules behind it.
+A source is one alerting tool, not one alert: every alert a tool sends shares its webhook format.
+These steps work the same for a person or a coding agent.
 
-## A source only you need
+## For your own setup
 
-1. Save a real payload from your tool, e.g. `payload.json`. Don't write one from memory or copy
-   field names out of a vendor's docs — what a tool actually sends can differ from what it
-   documents. Capture one.
+1. **Capture a real payload** from the tool into `payload.json`. Don't write one from memory or
+   from vendor docs: what a tool sends often differs from what it documents.
 
-2. Add a section to your `keenwake.toml`. Example: a small shell health-check script that posts
-   `{"check": "backup", "state": "KO"|"OK", "line": "..."}` for each check it runs.
+2. **Map it in your `keenwake.toml`.** Example: a health-check script that posts
+   `{"check": "backup", "state": "KO", "line": "..."}`.
 
    ```toml
    [source.healthcheck]
@@ -22,47 +21,51 @@ format, even if that tool has hundreds of different alert rules behind it.
    env = { const = "prod" }
    ```
 
-3. Check it without sending anything, and without calling a model:
+3. **Check it.** No network, no model call:
 
+   ```sh
+   keenwake --config keenwake.toml check-source --source healthcheck payload.json
    ```
-   keenwake check-source --source healthcheck payload.json
-   ```
 
-   This prints the `Alert` keenwake extracted from your payload and the exact sentence it would
-   send to the backend, so you can see the mapping worked before wiring anything up for real.
+   It prints the extracted fields and the exact sentence the model would get.
 
-4. Point your tool at `http://keenwake:8080/hook/healthcheck`.
+4. **Point the tool** at `http://keenwake:8080/hook/healthcheck`.
 
-## The five primitives
+## Mapping rules
 
-- `path` — read one field, by JSON Pointer: `{ path = "/annotations/summary" }`.
-- `first_of` — the first pointer that is present: `{ first_of = ["/title", "/message"] }`.
-- `map` — translate values: `{ path = "/state", map = { KO = "firing", OK = "resolved" } }`.
-- `const` — a fixed value: `{ const = "prod" }`.
-- `template` — assemble text from other fields: `{ template = "{check} failed: {line}" }`
-  (a nested field is `{labels/environment}` or `{/labels/environment}`).
+Six fields: `status` (required, must end up `firing` or `resolved`), `identity`, `summary`,
+`details`, `env`, `severity`. Nothing else in the payload is ever read (invariant 1 in
+[invariants.md](invariants.md)). Without `identity`, keenwake hashes `source + summary` with
+digits stripped, so "CPU at 92%" and "CPU at 95%" count as the same alert. Without `env` or
+`severity`, it uses `unknown`.
 
-There are no conditions and no calculations, on purpose. A format that needs logic goes through a
-small script placed in front of keenwake, not a language embedded in the TOML. If a tool's
-`status` can't be expressed as `path` + `map`, that's the sign it needs a script in front rather
-than a source section.
+Five primitives, nothing else:
 
-Six fields exist after mapping: `status`, `identity`, `summary`, `details`, `env`, `severity`.
-Anything else in the payload is never read again — see `docs/invariants.md`, invariant 1.
-`identity` and `env` are optional: a missing `identity` falls back to a hash of
-`source + summary` with digits stripped (so "CPU at 92%" and "CPU at 95%" count as the same
-alert); a missing `env` falls back to `"unknown"`.
+| Primitive | Does | Example |
+|---|---|---|
+| `path` | Reads one field (JSON Pointer) | `{ path = "/annotations/summary" }` |
+| `first_of` | First pointer that is present | `{ first_of = ["/title", "/message"] }` |
+| `map` | Translates values | `{ path = "/state", map = { KO = "firing", OK = "resolved" } }` |
+| `const` | Fixed value | `{ const = "prod" }` |
+| `template` | Builds text from fields | `{ template = "{check} failed: {line}" }`, nested: `{labels/env}` |
+
+No conditions, no calculations, on purpose. If `status` cannot be expressed with `path` + `map`,
+put a small script in front of keenwake instead of a source section.
 
 ## Ship a preset for everyone
 
-A preset ships inside the keenwake binary, so anyone using that tool gets it without writing any
-TOML:
+A preset is built into the binary, so users of that tool write no TOML.
 
-1. Add `presets/<tool>.toml` — the same `alerts` + `[fields]` shape as above, without the
-   `[source.name]` wrapper (see `presets/grafana.toml` for the shape).
-2. Add a real payload, with anything private removed, to `tests/fixtures/<tool>.json`.
-3. Register the preset in the `PRESETS` list in `src/config.rs`.
-4. Add a test to `tests/config.rs` asserting `status`, `identity`, `summary` and `env` on the
-   fixture.
-5. Run `scripts/cargo.sh test --test config` and see the new test fail before the preset exists, then
-   pass once it does.
+1. Save a real payload, with anything private removed, to `tests/fixtures/<tool>.json`.
+2. Add a test to `tests/config.rs` asserting `status`, `identity`, `summary` and `env` on that
+   fixture. Run `scripts/cargo.sh test --test config` and see it fail.
+3. Write `presets/<tool>.toml`: the `alerts` + `[fields]` shape above, without the
+   `[source.name]` wrapper (see `presets/grafana.toml`). Register it in `PRESETS` in
+   `src/config.rs`.
+4. Run the test again and see it pass. Then check the full output:
+
+   ```sh
+   scripts/cargo.sh run -- --config demo/keenwake.toml check-source --source <tool> tests/fixtures/<tool>.json
+   ```
+
+   Any valid config works here, since `check-source` never calls the backend.

@@ -24,8 +24,8 @@ Rules the code must never break. Each one has a test; the test name is given.
    `tests/pipeline.rs::prepare_redacts_before_storing_and_building_state`
 
 3. **Fail-open.** In gate mode with `on_error = "ping"`, a backend failure pings. In observe
-   mode, no decision ever suppresses an alert or reaches a team-facing output — only the
-   `verdict` webhook, which is explicitly informational. End to end, a backend error, timeout
+   mode, no decision ever suppresses an alert or reaches a team-facing output, only the
+   informational `verdict` webhook. End to end, a backend error, timeout
    or HTTP 429 in gate sends an `untriaged` ping.
    `tests/decide.rs::gate_fail_open_always_pings`,
    `tests/decide.rs::observe_never_suppresses_or_sends_to_team_outputs`,
@@ -38,7 +38,7 @@ Rules the code must never break. Each one has a test; the test name is given.
    `tests/decide.rs::higher_probability_is_never_less_urgent`
 
 5. **History.** A `resolved` event never calls the backend: it closes its episode and is
-   recorded without a model decision. This is the tested, meaningful part.
+   recorded without a model decision.
    `tests/pipeline.rs::resolved_needs_no_model`,
    `tests/server.rs::repeat_notification_does_not_ping_twice_and_resolved_follows_ping`
    (the backend receives the two firings, never the resolved).
@@ -47,7 +47,7 @@ Rules the code must never break. Each one has a test; the test name is given.
 
 6. **Replay.** Same config and same deterministic backend give the same decisions as the ones
    already stored. The shipped `replay` (the `keenwake replay` command), run on a gate history
-   recorded by `serve`, reports no change — including when a notification failed delivery, when
+   recorded by `serve`, reports no change, including when a notification failed delivery, when
    `on_error = "drop"` sent an untriaged decision nowhere, and when `--since` is shorter than the
    repeat window.
    `tests/server.rs::replay_of_recorded_gate_history_changes_nothing`,
@@ -58,8 +58,7 @@ Rules the code must never break. Each one has a test; the test name is given.
 
 ## A known gap these invariants don't cover
 
-keenwake has no way to tell whether an alert resolved on its own or because a human intervened
-— both look like the same `resolved` event. The sentence sent to the model (see `src/state.rs`)
-therefore only says how often the alert fired and how long its episodes usually lasted, never
-how they ended. Fixing this would need a way to distinguish the two, which no alerting tool
-keenwake talks to reports today.
+keenwake cannot tell whether an alert resolved on its own or because a human fixed it: both
+arrive as the same `resolved` event. So the sentence sent to the model (`src/state.rs`) says how
+often the alert fired and how long its episodes lasted, never how they ended. No alerting tool
+keenwake reads reports the difference today.
