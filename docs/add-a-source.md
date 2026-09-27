@@ -19,29 +19,41 @@ These steps work the same for a person or a coding agent.
    ```
 
    Point the tool's webhook at `http://<this-machine>:9000` and send a test notification (most
-   tools have a "Test" button). Don't write a payload from memory or from vendor docs: what a
-   tool sends often differs from what it documents.
+   tools have a "Test" button).
 
-2. **Map it in your `keenwake.toml`.** Example: a health-check script that posts
-   `{"check": "backup", "state": "KO", "line": "..."}`.
+2. **Tell keenwake where each piece is.** Say your tool sent this `payload.json`:
 
-   ```toml
-   [source.healthcheck]
-   alerts = ""                     # "" = one alert per webhook, or a JSON pointer to an array
-   [source.healthcheck.fields]
-   status = { path = "/state", map = { KO = "firing", OK = "resolved" } }
-   identity = { path = "/check" }
-   summary = { template = "{check} failed: {line}" }
-   env = { const = "prod" }
+   ```json
+   {"check": "backup", "state": "KO", "line": "rsync exited 23"}
    ```
 
-3. **Check it.** No network, no model call:
+   Add a section to your `keenwake.toml` that says which JSON field holds what:
+
+   ```toml
+   [source.healthcheck]            # "healthcheck" becomes the URL: /hook/healthcheck
+   alerts = ""                     # one alert per webhook
+   [source.healthcheck.fields]
+   status = { path = "/state", map = { KO = "firing", OK = "resolved" } }  # "KO" means firing
+   identity = { path = "/check" }                   # same check name = same alert, for history
+   summary = { template = "{check} failed: {line}" }  # the text the model reads
+   env = { const = "prod" }                         # not in the payload, so set it here
+   ```
+
+3. **Check the translation.** No network, no model call:
 
    ```sh
    keenwake --config keenwake.toml check-source --source healthcheck payload.json
    ```
 
-   It prints the extracted fields and the exact sentence the model would get.
+   ```
+   Alert { status: Firing, identity: "backup", summary: "backup failed: rsync exited 23",
+           env: "prod", severity: "unknown", ... }
+   state sent to the model:
+     Environment: prod. The alert is still firing, for 0 minutes so far. This alert has never
+     fired before in the last 7 days. Alert: backup failed: rsync exited 23. Severity label: unknown.
+   ```
+
+   If a value is wrong or empty, fix the matching line in step 2 and run it again.
 
 4. **Point the tool** at `http://keenwake:8080/hook/healthcheck`.
 
