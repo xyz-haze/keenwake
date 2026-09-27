@@ -88,18 +88,67 @@ injects real incidents and background noise, keenwake in gate mode with the loca
 sink that logs every page. It exits `0` only if every injected real incident reached the sink as a
 page. The first run downloads the Laya checkpoint (about 800 MB).
 
-To run it on your own alerts, write a `keenwake.toml` (see [docs/reference.md](docs/reference.md)),
-then:
+## Use it on your alerts
+
+**1. Write a `keenwake.toml`.** Observe mode needs only a backend:
+
+```toml
+[backend]
+url = "https://api.typesafe.ai"
+model = "jev-1.13.0"
+api_key_env = "TYPESAFE_API_KEY"
+```
+
+To keep everything local, run the Laya sidecar instead (`docker build -t keenwake-laya sidecar`)
+and use `url = "http://<sidecar>:8771"`, `model = "laya-typed-decisions"`. Every other key is
+optional and listed in [docs/reference.md](docs/reference.md#configuration).
+
+**2. Start it.**
 
 ```sh
 docker build -t keenwake .
-docker run -e TYPESAFE_API_KEY -v "$PWD/keenwake.toml:/etc/keenwake/keenwake.toml:ro" \
-  -v keenwake-data:/data -p 8080:8080 keenwake
+docker run -d --name keenwake -e TYPESAFE_API_KEY \
+  -v "$PWD/keenwake.toml:/etc/keenwake/keenwake.toml:ro" -v keenwake-data:/data \
+  -p 8080:8080 keenwake
+curl localhost:8080/healthz
 ```
 
-Add `http://<host>:8080/hook/alertmanager` (or `/hook/grafana`) as an extra receiver, next to the
-one you already have. After a week or two, `keenwake report --since 7d` shows what it would have
-paged and what it would have held back. Switch to `gate` only if you like what you see.
+**3. Send it a copy of your alerts.** Keep your current receiver and add keenwake next to it.
+
+Alertmanager, in the receiver you already use:
+
+```yaml
+receivers:
+  - name: team            # your existing receiver, unchanged
+    slack_configs: [...]
+    webhook_configs:
+      - url: http://keenwake:8080/hook/alertmanager
+        send_resolved: true
+```
+
+Grafana: add a Webhook integration to your contact point, URL
+`http://keenwake:8080/hook/grafana`. Another tool: see
+[docs/add-a-source.md](docs/add-a-source.md). `send_resolved` matters: without resolved
+notifications keenwake has no history.
+
+**4. After a week, read what it would have done.**
+
+```sh
+docker exec keenwake keenwake --config /etc/keenwake/keenwake.toml report --since 7d
+```
+
+```
+alerts decided: 1
+  ping       1
+first seen in 7 days (decided without history): 1
+avoidable pings (simulated gate): 0
+backend errors: 0
+median backend latency: 273 ms
+```
+
+`avoidable pings` is what gate mode would have held back. If the list looks right, set
+`mode = "gate"` and the three `[outputs]` webhooks (see
+[docs/reference.md](docs/reference.md#modes)), and make keenwake the only receiver.
 
 ## Safety
 
