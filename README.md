@@ -1,11 +1,11 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/hero-dark.svg">
-  <img alt="keenwake: pages you only for alerts that don't usually fix themselves. In one demo run, 9 pages without keenwake, 3 with it, both real incidents paged." src="docs/img/hero-light.svg">
+  <img alt="keenwake: pages you only for alerts that don't usually clear up quickly. In one demo run, 9 pages without keenwake, 3 with it, both real incidents paged." src="docs/img/hero-light.svg">
 </picture>
 
 keenwake sits next to Grafana or Alertmanager. It remembers every alert, and before paging you it
-checks what that same alert did over the last 7 days. An alert that flaps and clears on its own
-goes into a daily digest instead of waking you up.
+checks what that same alert did over the last 7 days. An alert that flaps and clears within minutes,
+as it always does, goes into a daily digest instead of waking you up.
 
 **Status: v0.1, a proof of concept.** Tested on a synthetic corpus and a Docker demo, not yet on a
 real on-call rotation. Start in observe mode: it records what it would do and changes nothing.
@@ -24,22 +24,29 @@ flowchart LR
     M --> D["ping, escalate<br/>or digest"]
 ```
 
+`ping` wakes someone now, `escalate` goes to a less urgent channel, `digest` waits for the daily
+summary. In observe mode keenwake only records them; in gate mode it sends them.
+
+The model is either Jev, a small hosted model from TypeSafe (`api.typesafe.ai`, proprietary), or
+Laya, an Apache-2.0 model you run locally. Both only ever see the sentence built from the facts and
+the alert text. keenwake has no affiliation with TypeSafe or with Laya's authors.
+
 keenwake does not learn: it remembers. The longer it runs, the more history each alert has, and
 the better the facts it hands to the model.
 
 ## How it compares
 
-| Tool | What it is | Skips pages for alerts that usually fix themselves? |
+| Tool | What it is | Skips pages for alerts that usually clear up quickly? |
 |---|---|---|
 | Alertmanager `for:` and inhibition | Fixed rules you write by hand | Only what your rules cover |
 | PagerDuty Auto-Pause | The same idea as keenwake, inside PagerDuty | Yes, in a paid add-on |
 | Keep, Robusta | Group, dedupe and enrich alerts | No |
 | HolmesGPT | Finds the root cause after the page | No, it runs after |
-| **keenwake** | Reads each alert's history and text, then decides | Yes, open source, can run fully local |
+| **keenwake** | Reads each alert's history and text, then decides | Yes, open source; a local model works but is weaker today |
 
 ## Numbers
 
-210 synthetic alerts, labelled "should page" or not. AUC 1.0 means every alert that should page
+210 synthetic alerts (15 scenarios, written by an LLM), labelled "should page" or not. AUC 1.0 means every alert that should page
 scored above every one that should not.
 
 | Scorer | AUC |
@@ -55,7 +62,8 @@ a production result. How it was measured, and the demo results: [docs/numbers.md
 ## Try it
 
 The full demo (Prometheus, Alertmanager, services that fail on purpose, keenwake) needs only
-Docker: `cd demo && ./e2e.sh`.
+Docker: `cd demo && ./e2e.sh`. It uses the local Laya model, which pages every flap (see Numbers).
+`KEENWAKE_DEMO_BACKEND=jev ./e2e.sh` uses Jev and reproduces the chart at the top.
 
 On your own alerts:
 
@@ -93,6 +101,10 @@ receivers:
 Grafana: add a Webhook integration to your contact point, URL `http://keenwake:8080/hook/grafana`.
 Other tools: [docs/add-a-source.md](docs/add-a-source.md).
 
+The URL must be reachable from your alerting tool (same Docker network, or the host's address).
+keenwake takes the environment from an `env` or `environment` label: without one, alerts are
+marked `unknown`, and the model knows less about them.
+
 **4. After a week, see what it would have done.**
 
 ```sh
@@ -109,6 +121,7 @@ If you like what you see, move one low-stakes route to gate mode first. See
   Laya, nothing leaves.
 - `/hook` has no authentication. Keep keenwake on an internal network.
 - It needs `resolved` notifications. Without them there is no history.
+- History starts empty: decisions get useful after a few days of live traffic.
 - Everything else, including known limitations: [docs/reference.md](docs/reference.md).
 
 ## Where this could go

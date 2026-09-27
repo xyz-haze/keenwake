@@ -8,7 +8,7 @@ Rules the code must never break. Each one has a test; the test name is given.
    `tests/pipeline.rs::unmapped_secret_never_reaches_the_backend`
 
 2. **Redaction.** `summary` and `details` are redacted before they are stored or sent to a
-   model; `identity`, `env` and `severity` are stored and sent as received. Property tests prove
+   model; `identity`, `env` and `severity` are stored and sent as received. Property tests check
    that the output never contains an email address (and that redacting twice equals redacting
    once), an IPv4 address, a secret after a known key (`api_key=`, `token:`, `password=`, ...)
    or a password in a URL (`scheme://user:pass@host`); IPv6 addresses and the other token kinds

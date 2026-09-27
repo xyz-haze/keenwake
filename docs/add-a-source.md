@@ -3,7 +3,7 @@
 **One endpoint per tool, not per alert.** Everything Grafana sends goes to `/hook/grafana`, whether
 it has 3 alert rules or 300. keenwake tells the alerts apart with the `identity` field, and keeps a
 separate history for each one. Grafana and Alertmanager work out of the box; this page is for any
-other tool. The steps work the same for a person or a coding agent.
+other tool.
 
 ## For your own setup
 
@@ -35,7 +35,7 @@ other tool. The steps work the same for a person or a coding agent.
    ```toml
    # the name you pick, here "mytool", becomes the URL: /hook/mytool
    [source.mytool]
-   # "" = one alert per webhook (or a JSON pointer to an array of alerts)
+   # "" = one alert per webhook; "/alerts" = one alert per element of that array
    alerts = ""
 
    [source.mytool.fields]
@@ -52,7 +52,7 @@ other tool. The steps work the same for a person or a coding agent.
 3. **Check the translation.** No network, no model call:
 
    ```sh
-   keenwake --config keenwake.toml check-source --source mytool payload.json
+   docker run --rm -v "$PWD:/w" -w /w keenwake --config keenwake.toml check-source --source mytool payload.json
    ```
 
    ```
@@ -65,7 +65,8 @@ other tool. The steps work the same for a person or a coding agent.
 
    If a value is wrong or empty, fix the matching line in step 2 and run it again.
 
-4. **Point the tool** at `http://keenwake:8080/hook/mytool`.
+4. **Restart keenwake** so it reads the new section, then **point the tool** at
+   `http://keenwake:8080/hook/mytool`.
 
 ## Mapping rules
 
