@@ -82,11 +82,15 @@ impl Store {
         c.last_insert_rowid()
     }
 
+    /// Returns the identity's events strictly after the last `resolved` event received before
+    /// `since` (or from the very first event if there is none), and strictly before `before_seq`.
+    /// An episode already open when the window starts is thus returned from its true first event,
+    /// even if that event lies outside `[since, before_seq)` — see `history::facts`.
     pub fn events_for(&self, identity: &str, since: i64, before_seq: i64) -> Vec<Event> {
         let c = self.c();
         let mut st = c.prepare(&format!("SELECT {EVENT_COLS} FROM events
-            WHERE identity = ?1 AND seq < ?2 AND seq >= COALESCE(
-              (SELECT MIN(seq) FROM events WHERE identity = ?1 AND received_at >= ?3), ?2)
+            WHERE identity = ?1 AND seq < ?2 AND seq > COALESCE(
+              (SELECT MAX(seq) FROM events WHERE identity = ?1 AND status = 'resolved' AND received_at < ?3), 0)
             ORDER BY seq")).expect("prepare");
         st.query_map(params![identity, before_seq, since], event).expect("query").map(|r| r.expect("row")).collect()
     }

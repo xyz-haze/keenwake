@@ -85,6 +85,50 @@ fn store_survives_reopen() {
     assert_eq!(s.events_since(0).len(), 1);
 }
 
+const DAY: i64 = 24 * 3600;
+
+#[test]
+fn episode_straddling_the_window_is_not_counted() {
+    let s = Store::memory();
+    let now = 1_800_000_000 + 10 * DAY;
+    s.insert_event(&alert(Status::Firing), now - 10 * DAY);
+    s.insert_event(&alert(Status::Firing), now - 3 * DAY);
+    s.insert_event(&alert(Status::Resolved), now - 1 * DAY);
+    let seq = s.insert_event(&alert(Status::Firing), now);
+    let before = s.events_for("id", now - 7 * DAY, seq);
+    let f = facts(&before, &alert(Status::Firing), now);
+    assert_eq!(f.episodes_7d, 0);
+    assert_eq!(f.resolved_7d, 0);
+    assert_eq!(f.median_minutes, None);
+}
+
+#[test]
+fn open_episode_keeps_its_true_start() {
+    let s = Store::memory();
+    let now = 1_800_000_000 + 10 * DAY;
+    s.insert_event(&alert(Status::Firing), now - 8 * DAY);
+    let seq = s.insert_event(&alert(Status::Firing), now);
+    let before = s.events_for("id", now - 7 * DAY, seq);
+    let f = facts(&before, &alert(Status::Firing), now);
+    assert_eq!(f.minutes, 8 * 24 * 60);
+    assert_eq!(f.episodes_7d, 0);
+}
+
+#[test]
+fn even_count_median_is_lower_middle() {
+    let s = Store::memory();
+    let t0 = 1_800_000_000;
+    for (start, dur) in [(0, 2), (10, 4), (20, 6), (30, 8)] {
+        s.insert_event(&alert(Status::Firing), t0 + start * MIN);
+        s.insert_event(&alert(Status::Resolved), t0 + (start + dur) * MIN);
+    }
+    let now = t0 + 100 * MIN;
+    let seq = s.insert_event(&alert(Status::Firing), now);
+    let before = s.events_for("id", now - 7 * DAY, seq);
+    let f = facts(&before, &alert(Status::Firing), now);
+    assert_eq!(f.median_minutes, Some(4));
+}
+
 proptest! {
     #[test]
     fn resolved_never_exceeds_episodes(ops in prop::collection::vec((any::<bool>(), 1i64..600), 0..60)) {
