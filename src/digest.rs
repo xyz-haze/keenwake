@@ -1,5 +1,6 @@
 //! Daily digest: once a day after digest_at (UTC), one POST with everything classified digest.
 
+use crate::config::TimeOfDay;
 use crate::server::App;
 use serde_json::json;
 use std::sync::Arc;
@@ -8,18 +9,14 @@ pub fn day_key(now: i64) -> String {
     format!("{}", now.div_euclid(86_400))
 }
 
-pub fn due(digest_at: &str, last_sent_day: Option<&str>, now: i64) -> bool {
-    let (h, m) = digest_at
-        .split_once(':')
-        .map(|(h, m)| (h.parse::<i64>().unwrap_or(8), m.parse::<i64>().unwrap_or(0)))
-        .unwrap_or((8, 0));
+pub fn due(digest_at: TimeOfDay, last_sent_day: Option<&str>, now: i64) -> bool {
     let secs_today = now.rem_euclid(86_400);
-    secs_today >= h * 3600 + m * 60 && last_sent_day != Some(day_key(now).as_str())
+    secs_today >= digest_at.secs_since_midnight() && last_sent_day != Some(day_key(now).as_str())
 }
 
 pub async fn tick(app: &App, now: i64) -> bool {
     let last = app.store.meta_get("digest_last_day");
-    if !due(&app.cfg.decision.digest_at, last.as_deref(), now) {
+    if !due(app.cfg.decision.digest_at, last.as_deref(), now) {
         return false;
     }
     app.store.meta_set("digest_last_day", &day_key(now));

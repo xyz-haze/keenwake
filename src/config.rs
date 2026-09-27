@@ -77,6 +77,44 @@ fn d_timeout() -> u64 {
     2000
 }
 
+/// A time of day in UTC, written HH:MM in the config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "String")]
+pub struct TimeOfDay {
+    secs: i64,
+}
+
+impl TimeOfDay {
+    pub fn secs_since_midnight(self) -> i64 {
+        self.secs
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0:?} must be HH:MM, UTC")]
+pub struct BadTimeOfDay(String);
+
+impl FromStr for TimeOfDay {
+    type Err = BadTimeOfDay;
+
+    fn from_str(s: &str) -> Result<TimeOfDay, BadTimeOfDay> {
+        let bad = || BadTimeOfDay(s.to_string());
+        let (h, m) = s.split_once(':').ok_or_else(bad)?;
+        match (h.parse::<u32>(), m.parse::<u32>()) {
+            (Ok(h), Ok(m)) if h < 24 && m < 60 && s.len() == 5 => Ok(TimeOfDay { secs: i64::from(h * 3600 + m * 60) }),
+            _ => Err(bad()),
+        }
+    }
+}
+
+impl TryFrom<String> for TimeOfDay {
+    type Error = BadTimeOfDay;
+
+    fn try_from(s: String) -> Result<TimeOfDay, BadTimeOfDay> {
+        s.parse()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DecisionCfg {
@@ -89,7 +127,7 @@ pub struct DecisionCfg {
     #[serde(default = "d_digest")]
     pub digest: f64,
     #[serde(default = "d_digest_at")]
-    pub digest_at: String,
+    pub digest_at: TimeOfDay,
     /// A delivered ping (or untriaged ping) suppresses later ones for the same identity only if it
     /// was decided within this many hours before the new event, so a lost `resolved` cannot
     /// silence an identity forever.
@@ -102,8 +140,8 @@ fn d_ping() -> f64 {
 fn d_digest() -> f64 {
     0.30
 }
-fn d_digest_at() -> String {
-    "08:00".into()
+fn d_digest_at() -> TimeOfDay {
+    TimeOfDay { secs: 8 * 3600 }
 }
 fn d_repeat_window_hours() -> u64 {
     24
@@ -273,11 +311,6 @@ fn source_spec(name: &str, mut table: toml::Table) -> Result<SourceSpec, ConfigE
     toml::Value::Table(merged).try_into().map_err(|e| invalid(format!("source {name}: {e}")))
 }
 
-fn valid_hhmm(s: &str) -> bool {
-    let Some((h, m)) = s.split_once(':') else { return false };
-    matches!((h.parse::<u32>(), m.parse::<u32>()), (Ok(h), Ok(m)) if h < 24 && m < 60 && s.len() == 5)
-}
-
 impl Config {
     pub fn load(path: &Path) -> Result<Config, ConfigError> {
         Config::from_toml(&std::fs::read_to_string(path)?)
@@ -318,9 +351,6 @@ impl Config {
         }
         if d.digest > d.ping {
             return Err(invalid("decision.digest must be lower than or equal to decision.ping"));
-        }
-        if !valid_hhmm(&d.digest_at) {
-            return Err(invalid("decision.digest_at must be HH:MM, UTC"));
         }
         if d.repeat_window_hours == 0 {
             return Err(invalid("decision.repeat_window_hours must be greater than 0"));

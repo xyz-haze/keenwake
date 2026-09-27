@@ -196,11 +196,12 @@ undelivered = "{}"
 fn digest_is_due_once_per_day_after_its_time() {
     use keenwake::digest::due;
     let day = 1_790_000_000 - (1_790_000_000 % 86_400); // 00:00 UTC of some day
-    assert!(!due("08:00", None, day + 7 * 3600));
-    assert!(due("08:00", None, day + 8 * 3600));
+    let at = "08:00".parse().unwrap();
+    assert!(!due(at, None, day + 7 * 3600));
+    assert!(due(at, None, day + 8 * 3600));
     let today = keenwake::digest::day_key(day + 8 * 3600);
-    assert!(!due("08:00", Some(&today), day + 9 * 3600));
-    assert!(due("08:00", Some(&today), day + 86_400 + 8 * 3600));
+    assert!(!due(at, Some(&today), day + 9 * 3600));
+    assert!(due(at, Some(&today), day + 86_400 + 8 * 3600));
 }
 
 #[tokio::test]

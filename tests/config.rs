@@ -15,7 +15,7 @@ fn defaults_are_observe_and_spec_thresholds() {
     assert_eq!(c.decision.on_error, OnError::Ping);
     assert_eq!(c.decision.ping, 0.55);
     assert_eq!(c.decision.digest, 0.30);
-    assert_eq!(c.decision.digest_at, "08:00");
+    assert_eq!(c.decision.digest_at.secs_since_midnight(), 8 * 3600);
     assert_eq!(c.decision.repeat_window_hours, 24);
     assert_eq!(c.backend.timeout_ms, 2000);
     assert_eq!(c.redact.patterns, vec![Pattern::Email, Pattern::Ip, Pattern::Token]);
