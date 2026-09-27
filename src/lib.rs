@@ -10,6 +10,7 @@ pub mod metrics;
 pub mod output;
 pub mod pipeline;
 pub mod redact;
+pub mod report;
 pub mod server;
 pub mod state;
 pub mod store;
