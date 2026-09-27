@@ -10,7 +10,7 @@ while IFS='=' read -r k _; do envs+=(-e "$k"); done < <(env | grep -E '^(ALERTSI
 exec docker run --rm \
   -u "$(id -u):$(id -g)" \
   -e CARGO_HOME=/w/.cargo-cache \
-  "${envs[@]}" \
+  ${envs[@]+"${envs[@]}"} \
   --network host \
   -v "$PWD":/w -w /w \
   "${RUST_IMAGE:-rust:1-bookworm}" cargo "$@"

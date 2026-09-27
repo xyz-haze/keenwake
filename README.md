@@ -4,7 +4,8 @@ Decide which alerts deserve to wake a human, and prove it with numbers.
 
 ## How it works
 
-1. Your alerting tool posts a webhook to `/hook/{source}`. `{source}` is either a built-in preset
+1. Your alerting tool posts a webhook to `/hook/{source}`. `/hook` has no authentication in V1:
+   keep alertsift on an internal network. `{source}` is either a built-in preset
    (`grafana`, `alertmanager`) or a `[source.name]` section in your `alertsift.toml`. An
    unrecognised source gets a `404` and is counted in `/metrics`.
 2. The handler queues the body and replies `200` immediately — a slow backend never makes the
@@ -16,8 +17,8 @@ Decide which alerts deserve to wake a human, and prove it with numbers.
    `details`, `env`, `severity` — using five primitives (`path`, `first_of`, `map`, `const`,
    `template`). This is a whitelist: anything not mapped never leaves this step. See
    `docs/add-a-source.md`.
-4. `redact` strips emails, IP addresses and tokens from the text fields before anything is stored
-   or sent anywhere.
+4. `redact` strips emails, IP addresses and tokens from `summary` and `details` before anything
+   is stored or sent anywhere. `identity`, `env` and `severity` are stored and sent as received.
 5. The event goes into SQLite. If the alert is `resolved`, its episode is closed and no model is
    called — ever.
 6. Otherwise, alertsift computes facts about this identity's last 7 days from stored events: how
