@@ -6,3 +6,4 @@ undelivered.jsonl
 /fuzz/corpus
 /fuzz/artifacts
 /demo/out
+__pycache__/
