@@ -129,7 +129,9 @@ async fn http_router_limits_body_size() {
     let be = FakeHttp::start(system_one_from_state()).await;
     let out = FakeHttp::start(sink()).await;
     let (a, _d) = app("observe", "ping", &be, &out, "").await;
-    let r = alertsift::server::router(Arc::new(a));
+    let a = Arc::new(a);
+    let (q, _worker) = alertsift::worker::start(a.clone(), alertsift::worker::QUEUE_CAPACITY);
+    let r = alertsift::server::router(a, q);
     let big = vec![b'a'; 2 * 1024 * 1024];
     let resp = r.clone().oneshot(Request::post("/hook/grafana").body(Body::from(big)).unwrap()).await.unwrap();
     assert_eq!(resp.status().as_u16(), 413);
@@ -162,7 +164,9 @@ undelivered = "{}"
 "#, be.url, out.url, dir.path().join("u.jsonl").display());
     let cfg = Config::from_toml(&toml).unwrap();
     let a = App::new(cfg, alertsift::store::Store::memory(), || 1_800_000_000).unwrap();
-    let r = alertsift::server::router(Arc::new(a));
+    let a = Arc::new(a);
+    let (q, _worker) = alertsift::worker::start(a.clone(), alertsift::worker::QUEUE_CAPACITY);
+    let r = alertsift::server::router(a, q);
     let body = grafana("slow", "f1", "firing");
     let t = Instant::now();
     let resp = r.oneshot(Request::post("/hook/grafana").body(Body::from(body)).unwrap()).await.unwrap();

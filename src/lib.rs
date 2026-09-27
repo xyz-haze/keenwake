@@ -14,3 +14,4 @@ pub mod report;
 pub mod server;
 pub mod state;
 pub mod store;
+pub mod worker;

@@ -39,8 +39,10 @@ enum Cmd {
     },
 }
 
-/// Graceful shutdown on SIGINT (Ctrl-C) or SIGTERM (the signal a supervisor sends to stop a
-/// service), so an in-flight webhook gets to finish rather than being dropped mid-write.
+/// How long the worker may keep deciding already-accepted webhooks after a stop signal.
+const DRAIN: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// Resolves on SIGINT (Ctrl-C) or SIGTERM (the signal a supervisor sends to stop a service).
 async fn shutdown_signal() {
     let ctrl_c = async { let _ = tokio::signal::ctrl_c().await; };
     let terminate = async {
@@ -78,13 +80,21 @@ async fn main() -> anyhow::Result<()> {
             let digest_app = app.clone();
             tokio::spawn(async move {
                 loop {
-                    alertsift::digest::tick(&digest_app, now_utc()).await;
+                    alertsift::digest::guarded_tick(&digest_app, now_utc()).await;
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 }
             });
+            let (queue, worker) = alertsift::worker::start(app.clone(), alertsift::worker::QUEUE_CAPACITY);
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             eprintln!("alertsift listening on {listen}, mode {:?}", app.cfg.decision.mode);
-            axum::serve(listener, router(app)).with_graceful_shutdown(shutdown_signal()).await?;
+            // On a stop signal, serve stops accepting and returns once open requests are answered;
+            // the router, and with it the last queue sender, is then dropped. The worker decides
+            // what was already accepted (at most DRAIN), then the process exits: anything still
+            // queued after that is lost, and the source got a 200 for it.
+            axum::serve(listener, router(app, queue)).with_graceful_shutdown(shutdown_signal()).await?;
+            if tokio::time::timeout(DRAIN, worker).await.is_err() {
+                eprintln!("alertsift: queue not drained within {DRAIN:?}, exiting anyway");
+            }
         }
         Cmd::Report { since, json } => {
             let store = Store::open(&cfg.store.path)?;

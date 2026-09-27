@@ -2,7 +2,7 @@
 
 use crate::mapping::{Alert, Status};
 use rusqlite::{params, Connection, OptionalExtension, Row};
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 pub struct Store { conn: Mutex<Connection> }
 
@@ -71,7 +71,9 @@ impl Store {
         Store { conn: Mutex::new(conn) }
     }
 
-    fn c(&self) -> std::sync::MutexGuard<'_, Connection> { self.conn.lock().expect("store mutex") }
+    /// A panic in an earlier call poisons the lock; the connection itself is still usable (an
+    /// aborted statement is rolled back by SQLite), so recover it rather than failing every call.
+    fn c(&self) -> std::sync::MutexGuard<'_, Connection> { self.conn.lock().unwrap_or_else(PoisonError::into_inner) }
 
     pub fn insert_event(&self, a: &Alert, received_at: i64) -> i64 {
         let c = self.c();

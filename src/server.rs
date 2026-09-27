@@ -9,6 +9,7 @@ use crate::output::{message, Sender};
 use crate::pipeline::{facts_line, finish, prepare};
 use crate::redact::Redactor;
 use crate::store::{DecisionRow, Store};
+use crate::worker::Queue;
 use axum::{body::Bytes, extract::{DefaultBodyLimit, Path, State}, http::StatusCode, routing::{get, post}, Router};
 use std::sync::Arc;
 
@@ -49,13 +50,22 @@ impl App {
         }
     }
 
-    async fn send(&self, t: Target, mut body: serde_json::Value) -> bool {
+    pub(crate) async fn send(&self, t: Target, mut body: serde_json::Value) -> bool {
         let Some(url) = self.url(t) else { return false };
         body["alertsift"]["channel"] = serde_json::json!(match t { Target::Verdict => "verdict", _ => "team" });
         let ok = self.sender.post(url, &body).await;
         if !ok { self.metrics.inc("alertsift_undelivered_total", &[]); }
         ok
     }
+}
+
+/// Gate only: sends the redacted raw body (first 4000 characters) to `outputs.ping` as
+/// `untriaged`, for an alert alertsift could not decide on its own.
+pub(crate) async fn send_untriaged_raw(app: &App, source: &str, body: &[u8], text: String) {
+    if app.cfg.decision.mode != Mode::Gate { return; }
+    let raw: String = app.redactor.clean(&String::from_utf8_lossy(body)).chars().take(4000).collect();
+    let msg = serde_json::json!({"text": text, "alertsift": {"decision": "untriaged", "source": source, "raw": raw}});
+    app.send(Target::Ping, msg).await;
 }
 
 fn mode_str(m: Mode) -> &'static str { match m { Mode::Observe => "observe", Mode::Gate => "gate" } }
@@ -70,12 +80,7 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
         Err(e) => {
             eprintln!("alertsift: mapping error from source {source}: {e}");
             app.metrics.inc("alertsift_mapping_errors_total", &[("source", source)]);
-            if app.cfg.decision.mode == Mode::Gate {
-                let raw: String = app.redactor.clean(&String::from_utf8_lossy(body)).chars().take(4000).collect();
-                let msg = serde_json::json!({"text": format!("[untriaged] unreadable alert from {source}: {e}"),
-                    "alertsift": {"decision": "untriaged", "source": source, "raw": raw}});
-                app.send(Target::Ping, msg).await;
-            }
+            send_untriaged_raw(app, source, body, format!("[untriaged] unreadable alert from {source}: {e}")).await;
             return 200;
         }
     };
@@ -114,25 +119,31 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
     200
 }
 
-/// Replies before the alert is processed: the source must not see a slow backend as a reason to
-/// retry-storm. Unknown sources are the one case checked synchronously, since that reply (404) is
-/// immediate anyway and must still bump the unknown-source metric.
-async fn hook(State(app): State<Arc<App>>, Path(source): Path<String>, body: Bytes) -> StatusCode {
-    if !app.cfg.sources.contains_key(&source) {
-        app.metrics.inc("alertsift_unknown_source_total", &[]);
+#[derive(Clone)]
+struct Http { app: Arc<App>, queue: Queue }
+
+/// Replies before the alert is processed: the body is queued for the single worker, so a slow
+/// backend never makes the source wait, and alerts are decided in arrival order. Unknown sources
+/// are checked synchronously (404); a full queue replies 503 so the source retries later.
+async fn hook(State(h): State<Http>, Path(source): Path<String>, body: Bytes) -> StatusCode {
+    if !h.app.cfg.sources.contains_key(&source) {
+        h.app.metrics.inc("alertsift_unknown_source_total", &[]);
         return StatusCode::NOT_FOUND;
     }
-    tokio::spawn(async move {
-        handle_body(&app, &source, &body).await;
-    });
-    StatusCode::OK
+    if h.queue.try_push(source, body) {
+        StatusCode::OK
+    } else {
+        h.app.metrics.inc("alertsift_queue_full_total", &[]);
+        StatusCode::SERVICE_UNAVAILABLE
+    }
 }
 
-pub fn router(app: Arc<App>) -> Router {
+/// The HTTP routes. Webhook bodies go to `queue`, drained by `worker::run`.
+pub fn router(app: Arc<App>, queue: Queue) -> Router {
     Router::new()
         .route("/hook/{source}", post(hook))
-        .route("/metrics", get(|State(a): State<Arc<App>>| async move { a.metrics.render() }))
+        .route("/metrics", get(|State(h): State<Http>| async move { h.app.metrics.render() }))
         .route("/healthz", get(|| async { "ok" }))
         .layer(DefaultBodyLimit::max(MAX_BODY))
-        .with_state(app)
+        .with_state(Http { app, queue })
 }

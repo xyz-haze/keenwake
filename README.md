@@ -7,8 +7,11 @@ Decide which alerts deserve to wake a human, and prove it with numbers.
 1. Your alerting tool posts a webhook to `/hook/{source}`. `{source}` is either a built-in preset
    (`grafana`, `alertmanager`) or a `[source.name]` section in your `alertsift.toml`. An
    unrecognised source gets a `404` and is counted in `/metrics`.
-2. The handler replies `200` immediately and processes the alert(s) in the background — a slow
-   backend or a retry-storm from your alerting tool never makes the source wait.
+2. The handler queues the body and replies `200` immediately — a slow backend never makes the
+   source wait. One worker decides queued bodies one at a time, in arrival order, so a firing is
+   fully decided before its `resolved` is looked at. If the queue (10 000 bodies) is full, the
+   handler replies `503` so the source retries later. On SIGINT or SIGTERM, alertsift stops
+   accepting webhooks and gives the worker up to 8 seconds to finish the queue.
 3. The mapping extracts a fixed set of fields from the payload — `status`, `identity`, `summary`,
    `details`, `env`, `severity` — using five primitives (`path`, `first_of`, `map`, `const`,
    `template`). This is a whitelist: anything not mapped never leaves this step. See
@@ -171,7 +174,8 @@ mode, a failure never changes what the team sees — it is only recorded and cou
 | Backend times out, errors, or hits a quota | If `on_error = "ping"` (default): pings, decision kind `untriaged`, reason `"not triaged: backend unavailable (...)"`. If `on_error = "drop"`: nothing is sent, but the decision is still recorded as `untriaged`. |
 | Payload unreadable, or `status` missing or unrecognised | Always pings — regardless of `on_error` — with the redacted raw body (first 4000 characters) and text `"[untriaged] unreadable alert from {source}: {error}"`. The mapping error is also logged to stderr and counted in `alertsift_mapping_errors_total`. |
 | An output webhook fails | 3 attempts with backoff, then a line in `undelivered.jsonl` plus the `alertsift_undelivered_total` metric. |
-| SQLite is unavailable | **Not yet handled gracefully.** Store operations currently panic instead of degrading to "decide without history, so ping". The panic is confined to that alert's background task (the source already got its `200`), but it poisons the store's internal lock, so every later alert panics too until the process is restarted. Treat this as a known gap, not a documented behaviour. |
+| SQLite fails, or processing an alert panics for any other reason | Store operations still panic rather than degrade to "decide without history". The panic is contained to that webhook body: in gate it pings the redacted raw body (first 4000 characters) as `untriaged` with text `"[untriaged] internal error while processing an alert from {source}"`; in observe it is only counted. Either way `alertsift_internal_errors_total` goes up, the error is logged to stderr without the body, and the next webhook is processed normally. A panic while sending the daily digest is logged and counted; the digest loop keeps running. |
+| The webhook queue is full | The source gets `503` and should retry; counted in `alertsift_queue_full_total`. |
 | alertsift itself is down | The source stops getting `200`s. Point a direct fallback contact (e.g. a Slack or PagerDuty webhook) at your alerting tool for this case — alertsift does not provide one. |
 
 Repeated notifications of an already-pinged episode — including an untriaged ping while the
@@ -179,7 +183,7 @@ backend is down — do not ping again in gate mode for `decision.repeat_window_h
 after the last delivered ping; after that window a still-firing identity pings again, so a lost
 `resolved` cannot silence it forever. A `resolved` event goes through when the episode had a
 delivered ping within that window. `/metrics` exposes Prometheus counters (alerts received per source, decisions per kind,
-mapping and backend errors, backend latency, undelivered webhooks); `/healthz` is a plain
+mapping, backend and internal errors, backend latency, undelivered webhooks, full queue); `/healthz` is a plain
 liveness check.
 
 ## Adding a source

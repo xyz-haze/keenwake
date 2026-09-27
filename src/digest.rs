@@ -2,6 +2,7 @@
 
 use crate::server::App;
 use serde_json::json;
+use std::sync::Arc;
 
 pub fn day_key(now: i64) -> String { format!("{}", now.div_euclid(86_400)) }
 
@@ -28,4 +29,18 @@ pub async fn tick(app: &App, now: i64) -> bool {
     let ok = app.sender.post(url, &body).await;
     if !ok { app.metrics.inc("alertsift_undelivered_total", &[]); }
     ok
+}
+
+/// `tick` in its own task: a panic there (e.g. a store error) is logged and counted, and the
+/// digest loop keeps running.
+pub async fn guarded_tick(app: &Arc<App>, now: i64) -> bool {
+    let a = app.clone();
+    match tokio::spawn(async move { tick(&a, now).await }).await {
+        Ok(sent) => sent,
+        Err(_) => {
+            eprintln!("alertsift: internal error while sending the digest");
+            app.metrics.inc("alertsift_internal_errors_total", &[]);
+            false
+        }
+    }
 }
