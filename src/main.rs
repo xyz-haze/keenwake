@@ -31,11 +31,28 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
-    /// Re-decide stored alerts with the current config (mapping is not replayed). Calls the backend.
+    /// Re-decide stored alerts with the current config (mapping is not replayed; repeat
+    /// suppression is simulated from the replayed decisions). Calls the backend.
     Replay {
         #[arg(long, default_value = "7d")]
         since: String,
     },
+}
+
+/// Graceful shutdown on SIGINT (Ctrl-C) or SIGTERM (the signal a supervisor sends to stop a
+/// service), so an in-flight webhook gets to finish rather than being dropped mid-write.
+async fn shutdown_signal() {
+    let ctrl_c = async { let _ = tokio::signal::ctrl_c().await; };
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
 
 #[tokio::main]
@@ -67,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
             });
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             eprintln!("alertsift listening on {listen}, mode {:?}", app.cfg.decision.mode);
-            axum::serve(listener, router(app)).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
+            axum::serve(listener, router(app)).with_graceful_shutdown(shutdown_signal()).await?;
         }
         Cmd::Report { since, json } => {
             let store = Store::open(&cfg.store.path)?;

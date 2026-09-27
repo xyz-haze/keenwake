@@ -1,6 +1,11 @@
+mod common;
+
+use alertsift::config::Config;
 use alertsift::mapping::{Alert, Status};
-use alertsift::report::{build, parse_since};
+use alertsift::report::{build, parse_since, replay};
+use alertsift::server::App;
 use alertsift::store::{DecisionRow, Store};
+use common::{system_one_from_state, FakeHttp};
 
 fn ev(s: &Store, summary: &str, kind: &str, p: Option<f64>, tokens: i64) {
     let a = Alert { source: "g".into(), status: Status::Firing, identity: summary.into(), summary: summary.into(),
@@ -8,6 +13,18 @@ fn ev(s: &Store, summary: &str, kind: &str, p: Option<f64>, tokens: i64) {
     let seq = s.insert_event(&a, 1_800_000_000);
     s.insert_decision(&DecisionRow { event_seq: seq, decided_at: 1_800_000_000, mode: "observe".into(), kind: kind.into(),
         probability: p, reason: "".into(), delivered: false, backend_ms: Some(100), input_tokens: Some(tokens) });
+}
+
+/// Inserts one event for `identity` with a decision of the given stored `kind`. The alert's own
+/// status mirrors the kind only for `resolved` (real resolved alerts skip the model); the other
+/// fields don't matter for `avoidable_pings`, which is computed purely from `d.kind`.
+fn ev_kind(s: &Store, identity: &str, kind: &str) {
+    let status = if kind == "resolved" { Status::Resolved } else { Status::Firing };
+    let a = Alert { source: "g".into(), status, identity: identity.into(), summary: format!("{identity}-{kind}"),
+                    details: "".into(), env: "prod".into(), severity: "critical".into() };
+    let seq = s.insert_event(&a, 1_800_000_000);
+    s.insert_decision(&DecisionRow { event_seq: seq, decided_at: 1_800_000_000, mode: "observe".into(), kind: kind.into(),
+        probability: Some(0.9), reason: "".into(), delivered: false, backend_ms: Some(100), input_tokens: Some(0) });
 }
 
 #[test]
@@ -33,4 +50,43 @@ fn report_counts_and_costs() {
     assert!((r.est_cost_usd - 0.042).abs() < 1e-9);
     assert_eq!(r.first_seen, 3);
     assert!(r.to_text().contains("ping"));
+}
+
+#[test]
+fn report_counts_avoidable_pings() {
+    let s = Store::memory();
+    ev_kind(&s, "id-a", "ping");
+    ev_kind(&s, "id-a", "ping");
+    ev_kind(&s, "id-a", "resolved");
+    ev_kind(&s, "id-a", "ping");
+    ev_kind(&s, "id-b", "digest");
+    ev_kind(&s, "id-b", "escalate");
+    let r = build(&s, 0, 0.042);
+    assert_eq!(r.avoidable_pings, 3);
+}
+
+#[tokio::test]
+async fn replay_simulates_repeat_from_observe_history() {
+    let fake = FakeHttp::start(system_one_from_state()).await;
+    let s = Store::memory();
+    let alert = Alert { source: "g".into(), status: Status::Firing, identity: "id1".into(),
+        summary: "p=0.90 disk".into(), details: "".into(), env: "prod".into(), severity: "critical".into() };
+    let seq1 = s.insert_event(&alert, 1_800_000_000);
+    s.insert_decision(&DecisionRow { event_seq: seq1, decided_at: 1_800_000_000, mode: "observe".into(), kind: "ping".into(),
+        probability: Some(0.9), reason: "".into(), delivered: false, backend_ms: None, input_tokens: None });
+    let seq2 = s.insert_event(&alert, 1_800_000_060);
+    s.insert_decision(&DecisionRow { event_seq: seq2, decided_at: 1_800_000_060, mode: "observe".into(), kind: "ping".into(),
+        probability: Some(0.9), reason: "".into(), delivered: false, backend_ms: None, input_tokens: None });
+
+    let cfg = Config::from_toml(&format!(
+        "[backend]\nurl='{}'\nmodel='m-1'\n[decision]\nmode='gate'\n[outputs]\nping='http://p'\nescalate='http://e'\ndigest='http://d'\n",
+        fake.url
+    )).unwrap();
+    let app = App::new(cfg, s, || 1_800_000_120).unwrap();
+
+    let changed = replay(&app, 0).await;
+    assert_eq!(changed.len(), 1, "{changed:?}");
+    assert_eq!(changed[0].0, seq2);
+    assert_eq!(changed[0].2, "ping");
+    assert_eq!(changed[0].3, "repeat");
 }
