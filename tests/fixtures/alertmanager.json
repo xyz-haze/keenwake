@@ -1,0 +1,22 @@
+{
+  "version": "4",
+  "groupKey": "{}:{alertname=\"HighErrorRate\"}",
+  "truncatedAlerts": 0,
+  "status": "firing",
+  "receiver": "alertsift",
+  "groupLabels": {"alertname": "HighErrorRate"},
+  "commonLabels": {"alertname": "HighErrorRate", "env": "prod"},
+  "commonAnnotations": {"summary": "5xx above 5% on api-1"},
+  "externalURL": "http://alertmanager:9093",
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {"alertname": "HighErrorRate", "instance": "api-1", "env": "prod", "severity": "critical"},
+      "annotations": {"summary": "5xx above 5% on api-1", "description": "12% of requests failed over 5m"},
+      "startsAt": "2026-09-28T03:00:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "http://prometheus:9090/graph?g0.expr=...",
+      "fingerprint": "c0ffee0123456789"
+    }
+  ]
+}

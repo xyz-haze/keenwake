@@ -1,0 +1,38 @@
+{
+  "receiver": "alertsift",
+  "status": "firing",
+  "orgId": 1,
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {"alertname": "HighCPU", "instance": "etl-2", "env": "prod", "severity": "critical", "grafana_folder": "Infra"},
+      "annotations": {"summary": "CPU above 90% on etl-2", "description": "CPU at 92% for 2m"},
+      "startsAt": "2026-09-28T02:57:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://grafana.internal/alerting/grafana/2679/view?secret-token=abc",
+      "fingerprint": "77de1aae9f2d6621",
+      "silenceURL": "https://grafana.internal/alerting/silence/new",
+      "values": {"A": 92},
+      "valueString": "[ var='A' labels={instance=etl-2} value=92 ]"
+    },
+    {
+      "status": "resolved",
+      "labels": {"alertname": "DiskFull", "instance": "db-1", "env": "prod", "severity": "warning"},
+      "annotations": {"summary": "Disk above 95% on db-1"},
+      "startsAt": "2026-09-28T02:40:00Z",
+      "endsAt": "2026-09-28T02:58:00Z",
+      "generatorURL": "https://grafana.internal/alerting/grafana/11/view",
+      "fingerprint": "0a1b2c3d4e5f6789"
+    }
+  ],
+  "groupLabels": {},
+  "commonLabels": {"env": "prod"},
+  "commonAnnotations": {},
+  "externalURL": "https://grafana.internal/",
+  "version": "1",
+  "groupKey": "{}:{}",
+  "truncatedAlerts": 0,
+  "title": "[FIRING:1] HighCPU",
+  "state": "alerting",
+  "message": "**Firing** ..."
+}
