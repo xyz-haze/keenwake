@@ -1,8 +1,8 @@
 //! The sentence sent to the model: history conclusions first, then the alert text.
-//! Wording derives from the spike on which Laya reached AUC 0.994; change it only with the slow test.
+//! The wording is guarded by the slow corpus test (tests/corpus.rs): change it only with that test.
 
 use crate::history::Facts;
-use crate::mapping::Alert;
+use crate::mapping::{Alert, UNKNOWN};
 
 pub const MAX_FIELD_CHARS: usize = 1000;
 
@@ -16,7 +16,8 @@ fn trim_dot(s: &str) -> &str {
 
 pub fn sentence(a: &Alert, f: &Facts) -> String {
     let mut parts = vec![format!("Environment: {}.", f.env)];
-    if f.env != "prod" && f.env != "production" {
+    // An unmapped env says nothing about production: only an explicit other env earns the clause.
+    if f.env != "prod" && f.env != "production" && f.env != UNKNOWN {
         parts[0].push_str(" This is not production.");
     }
     if f.firing {

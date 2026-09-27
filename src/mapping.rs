@@ -91,6 +91,9 @@ pub enum MapError {
     BadStatus(String),
 }
 
+/// The env or severity of an alert whose mapping names no such field, or whose field is empty.
+pub const UNKNOWN: &str = "unknown";
+
 fn pointer(p: &str) -> String {
     if p.is_empty() || p.starts_with('/') {
         p.to_string()
@@ -169,8 +172,8 @@ fn one(name: &str, f: &Fields, item: &Value) -> Result<Alert, MapError> {
         identity,
         summary,
         details: opt(f.details.as_ref()).unwrap_or_default(),
-        env: opt(f.env.as_ref()).unwrap_or_else(|| "unknown".into()),
-        severity: opt(f.severity.as_ref()).unwrap_or_else(|| "unknown".into()),
+        env: opt(f.env.as_ref()).unwrap_or_else(|| UNKNOWN.into()),
+        severity: opt(f.severity.as_ref()).unwrap_or_else(|| UNKNOWN.into()),
     })
 }
 
