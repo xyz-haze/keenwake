@@ -1,8 +1,0 @@
-[backend]
-url = "https://api.typesafe.ai"
-model = "jev-1.13.0"
-api_key_env = "TYPESAFE_API_KEY"
-
-[store]
-path = "/tmp/keenwake.db"
-undelivered = "/tmp/undelivered.jsonl"

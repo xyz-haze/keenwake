@@ -24,10 +24,6 @@ as it always does, goes into a daily digest instead of waking you up.
 **Status: v0.1.** Tested on a synthetic corpus and a Docker demo, not yet on a
 real on-call rotation. Start in observe mode: it records what it would do and changes nothing.
 
-![api-1 fails its health check for a second, four times: paged the first time, then sent to the digest. Then it goes down and stays down: digest at first, paged after 4 minutes](docs/img/demo.gif)
-
-<sub>A real run with the hosted Jev model. Source: [demo/gif/keenwake.tape](demo/gif/keenwake.tape).</sub>
-
 ## How it works
 
 ```mermaid
