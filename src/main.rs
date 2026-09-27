@@ -49,7 +49,6 @@ enum Cmd {
 /// How long the worker may keep deciding already-accepted webhooks after a stop signal.
 const DRAIN: Duration = Duration::from_secs(8);
 
-/// Resolves on SIGINT (Ctrl-C) or SIGTERM (the signal a supervisor sends to stop a service).
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;

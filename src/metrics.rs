@@ -1,4 +1,4 @@
-//! Minimal Prometheus text exposition: counters and a latency sum/count. No dependency needed.
+//! Hand-rolled Prometheus text exposition (counters and a latency sum/count) to avoid a dependency.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;

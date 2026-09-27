@@ -5,12 +5,9 @@
 //! can straddle the 7-day window: `events_before` (via `Store::events_for`) may include an episode's
 //! true first event even though it lies before the window, so that its real start is known.
 //!
-//! `episodes_7d` counts episodes whose start is on or after `current_at - WINDOW_SECS`, excluding
-//! the current one (the episode, if any, still open when `current` arrives — there is at most one,
-//! since episodes are sequential per identity). Only ended episodes are counted, so an episode that
-//! started before the window but ended inside it does not count. Whether an episode ended on its own
-//! or because a human fixed it is unknowable here: both look like the same `resolved` event.
-//! `median_minutes` is the median duration of those ended episodes, rounded down; for an even
+//! `episodes_7d` counts ended episodes that started on or after `current_at - WINDOW_SECS`, so the
+//! one still open when `current` arrives is excluded, and so is one that started before the window
+//! but ended inside it. `median_minutes` is the median duration of those ended episodes, rounded down; for an even
 //! count, the lower of the two middle values. It is `None` exactly when `episodes_7d` is 0.
 //! `minutes` is, for the current event, minutes since the *true* start of its still-open episode
 //! (0 if none is open, i.e. it opens now), even when that start lies outside the window.

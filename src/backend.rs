@@ -37,7 +37,6 @@ pub enum BackendError {
     Transport(String),
 }
 
-/// Why a `Backend` (or the `App` holding it) could not be built.
 #[derive(Debug, thiserror::Error)]
 pub enum SetupError {
     #[error("environment variable {0} is not set")]

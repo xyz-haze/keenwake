@@ -1,5 +1,3 @@
-//! Turns a raw webhook body into alerts, reading only the fields the spec names.
-
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -195,7 +193,6 @@ fn one(name: &str, f: &Fields, item: &Value) -> Result<Alert, MapError> {
     })
 }
 
-/// One alert of a body that could not be mapped, with the payload item it came from.
 #[derive(Debug, PartialEq)]
 pub struct BadItem {
     pub error: MapError,

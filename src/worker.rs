@@ -51,7 +51,6 @@ pub fn queue(capacity: usize, max_bytes: usize) -> (Queue, Jobs) {
     (Queue { tx, bytes: bytes.clone(), max_bytes }, Jobs { rx, bytes })
 }
 
-/// A bounded queue and the worker task draining it.
 pub fn start(app: Arc<App>, capacity: usize, max_bytes: usize) -> (Queue, JoinHandle<()>) {
     let (q, rx) = queue(capacity, max_bytes);
     (q, tokio::spawn(run(app, rx)))
