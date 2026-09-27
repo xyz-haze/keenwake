@@ -23,7 +23,8 @@ other tool. The steps work the same for a person or a coding agent.
    Point the tool's webhook at `http://<this-machine>:9000` and send a test notification (most
    tools have a "Test" button).
 
-2. **Tell keenwake where each piece is.** Say your tool sent this `payload.json`:
+2. **Tell keenwake where each piece is.** Say your tool, called `mytool` here, sent this
+   `payload.json`:
 
    ```json
    {"check": "backup", "state": "KO", "line": "rsync exited 23"}
@@ -32,12 +33,12 @@ other tool. The steps work the same for a person or a coding agent.
    Add a section to your `keenwake.toml` that says which JSON field holds what:
 
    ```toml
-   # "healthcheck" becomes the URL: /hook/healthcheck
-   [source.healthcheck]
+   # the name you pick, here "mytool", becomes the URL: /hook/mytool
+   [source.mytool]
    # "" = one alert per webhook (or a JSON pointer to an array of alerts)
    alerts = ""
 
-   [source.healthcheck.fields]
+   [source.mytool.fields]
    # "state" is "KO" while broken, "OK" once fixed
    status = { path = "/state", map = { KO = "firing", OK = "resolved" } }
    # same check name = same alert, so it gets one history
@@ -51,7 +52,7 @@ other tool. The steps work the same for a person or a coding agent.
 3. **Check the translation.** No network, no model call:
 
    ```sh
-   keenwake --config keenwake.toml check-source --source healthcheck payload.json
+   keenwake --config keenwake.toml check-source --source mytool payload.json
    ```
 
    ```
@@ -64,7 +65,7 @@ other tool. The steps work the same for a person or a coding agent.
 
    If a value is wrong or empty, fix the matching line in step 2 and run it again.
 
-4. **Point the tool** at `http://keenwake:8080/hook/healthcheck`.
+4. **Point the tool** at `http://keenwake:8080/hook/mytool`.
 
 ## Mapping rules
 
