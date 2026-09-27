@@ -7,6 +7,7 @@ use crate::state::sentence;
 use crate::store::{Event, Store};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 
 pub const JEV_USD_PER_MTOK: f64 = 0.042;
 
@@ -144,23 +145,20 @@ pub fn build(store: &Store, since: i64, price_per_mtok: f64, repeat_window: i64)
     }
 }
 
-impl Report {
-    pub fn to_text(&self) -> String {
-        let mut s = format!("alerts decided: {}\n", self.total);
+/// The human-readable report printed by `keenwake report`.
+impl fmt::Display for Report {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "alerts decided: {}", self.total)?;
         for (k, v) in &self.by_kind {
-            s.push_str(&format!("  {k:<10} {v}\n"));
+            writeln!(f, "  {k:<10} {v}")?;
         }
-        s.push_str(&format!("first seen in 7 days (decided without history): {}\n", self.first_seen));
-        s.push_str(&format!("avoidable pings (simulated gate): {}\n", self.avoidable_pings));
-        s.push_str(&format!("backend errors: {}\n", self.backend_errors));
+        writeln!(f, "first seen in 7 days (decided without history): {}", self.first_seen)?;
+        writeln!(f, "avoidable pings (simulated gate): {}", self.avoidable_pings)?;
+        writeln!(f, "backend errors: {}", self.backend_errors)?;
         if let Some(m) = self.median_backend_ms {
-            s.push_str(&format!("median backend latency: {m} ms\n"));
+            writeln!(f, "median backend latency: {m} ms")?;
         }
-        s.push_str(&format!(
-            "input tokens: {} (about ${:.4} at Jev list price)\n",
-            self.input_tokens, self.est_cost_usd
-        ));
-        s
+        writeln!(f, "input tokens: {} (about ${:.4} at Jev list price)", self.input_tokens, self.est_cost_usd)
     }
 }
 

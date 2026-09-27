@@ -4,6 +4,7 @@ use axum::body::Body;
 use axum::http::Request;
 use common::{alert, app, config, grafana, sink, system_one_from_state, FakeHttp, T0};
 use keenwake::config::Mode;
+use keenwake::digest::guarded_tick;
 use keenwake::mapping::{Alert, Status};
 use keenwake::server::{router, App};
 use keenwake::store::Store;
@@ -172,7 +173,7 @@ async fn digest_tick_panic_is_contained() {
     s.queue_digest(s.insert_event(&alert(Status::Firing), T0));
     let (a, _d) = shared_app(Mode::Gate, &be, &out, s);
     let day = 1_800_000_000 - 1_800_000_000 % 86_400;
-    assert!(!keenwake::digest::guarded_tick(&a, day + 9 * 3600).await);
+    assert!(!guarded_tick(&a, day + 9 * 3600).await);
     assert!(a.metrics.render().contains("keenwake_internal_errors_total 1"));
     assert!(a.store.meta_get("digest_last_day").is_some(), "the store still answers after the panic");
 }

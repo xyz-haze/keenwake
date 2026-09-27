@@ -54,7 +54,7 @@ pub fn facts(events_before: &[Event], current: &Alert, current_at: i64) -> Facts
     };
     let mut durations: Vec<i64> =
         ended.into_iter().filter(|(start, _)| *start >= window_start).map(|(_, d)| d).collect();
-    let episodes_7d = durations.len() as u32;
+    let episodes_7d = u32::try_from(durations.len()).unwrap_or(u32::MAX);
     durations.sort_unstable();
     let median_minutes = if durations.is_empty() { None } else { Some(durations[(durations.len() - 1) / 2]) };
     Facts {
@@ -62,7 +62,8 @@ pub fn facts(events_before: &[Event], current: &Alert, current_at: i64) -> Facts
         firing,
         minutes,
         episodes_7d,
-        resolved_7d: durations.len() as u32,
+        // Only ended episodes are counted, so each of them resolved.
+        resolved_7d: episodes_7d,
         median_minutes,
     }
 }

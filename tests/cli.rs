@@ -55,7 +55,7 @@ fn report_counts_and_costs() {
     assert_eq!(r.input_tokens, 1_000_000);
     assert!((r.est_cost_usd - 0.042).abs() < 1e-9);
     assert_eq!(r.first_seen, 3);
-    assert!(r.to_text().contains("ping"));
+    assert!(r.to_string().contains("ping"));
 }
 
 #[test]

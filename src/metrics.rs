@@ -27,7 +27,7 @@ impl Metrics {
     }
 
     pub fn observe_ms(&self, name: &str, ms: i64) {
-        self.add(&format!("{name}_ms_sum"), &[], ms.max(0) as u64);
+        self.add(&format!("{name}_ms_sum"), &[], u64::try_from(ms).unwrap_or(0));
         self.inc(&format!("{name}_ms_count"), &[]);
     }
 

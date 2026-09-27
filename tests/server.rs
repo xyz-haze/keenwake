@@ -1,8 +1,11 @@
 mod common;
 use common::{app, config, grafana, sink, system_one_from_state, FakeHttp, T0};
 use keenwake::config::Mode;
-use keenwake::server::{handle_body, App};
+use keenwake::digest::{day_key, due};
+use keenwake::report::replay;
+use keenwake::server::{handle_body, router, App};
 use keenwake::store::Store;
+use keenwake::worker;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -106,8 +109,8 @@ async fn http_router_limits_body_size() {
     let out = FakeHttp::start(sink()).await;
     let (a, _d) = short_timeout_app(Mode::Observe, &be, &out);
     let a = Arc::new(a);
-    let (q, _worker) = keenwake::worker::start(a.clone(), keenwake::worker::QUEUE_CAPACITY);
-    let r = keenwake::server::router(a, q);
+    let (q, _worker) = worker::start(a.clone(), worker::QUEUE_CAPACITY);
+    let r = router(a, q);
     let big = vec![b'a'; 2 * 1024 * 1024];
     let resp = r.clone().oneshot(Request::post("/hook/grafana").body(Body::from(big)).unwrap()).await.unwrap();
     assert_eq!(resp.status().as_u16(), 413);
@@ -129,8 +132,8 @@ async fn hook_replies_before_a_slow_backend_finishes() {
     cfg.backend.timeout_ms = 10_000;
     let (a, _d) = app(cfg, Store::memory(), || T0);
     let a = Arc::new(a);
-    let (q, _worker) = keenwake::worker::start(a.clone(), keenwake::worker::QUEUE_CAPACITY);
-    let r = keenwake::server::router(a, q);
+    let (q, _worker) = worker::start(a.clone(), worker::QUEUE_CAPACITY);
+    let r = router(a, q);
     let body = grafana("slow", "f1", "firing");
     let t = Instant::now();
     let resp = r.oneshot(Request::post("/hook/grafana").body(Body::from(body)).unwrap()).await.unwrap();
@@ -141,12 +144,11 @@ async fn hook_replies_before_a_slow_backend_finishes() {
 
 #[test]
 fn digest_is_due_once_per_day_after_its_time() {
-    use keenwake::digest::due;
     let day = 1_790_000_000 - (1_790_000_000 % 86_400); // 00:00 UTC of some day
     let at = "08:00".parse().unwrap();
     assert!(!due(at, None, day + 7 * 3600));
     assert!(due(at, None, day + 8 * 3600));
-    let today = keenwake::digest::day_key(day + 8 * 3600);
+    let today = day_key(day + 8 * 3600);
     assert!(!due(at, Some(&today), day + 9 * 3600));
     assert!(due(at, Some(&today), day + 86_400 + 8 * 3600));
 }
@@ -194,5 +196,5 @@ async fn replay_of_recorded_gate_history_changes_nothing() {
     }
     let stored: Vec<&str> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind.as_str()).collect();
     assert_eq!(stored, vec!["ping", "repeat", "resolved", "ping", "escalate", "digest"]);
-    assert_eq!(keenwake::report::replay(&a, 0).await, vec![]);
+    assert_eq!(replay(&a, 0).await, vec![]);
 }

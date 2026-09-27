@@ -111,7 +111,7 @@ fn lookup(item: &Value, p: &str) -> Option<String> {
     item.pointer(&pointer(p)).and_then(text).filter(|s| !s.is_empty())
 }
 
-fn translate(v: String, map: &Option<BTreeMap<String, String>>) -> String {
+fn translate(v: String, map: Option<&BTreeMap<String, String>>) -> String {
     match map {
         Some(m) => m.get(&v).cloned().unwrap_or(v),
         None => v,
@@ -141,9 +141,9 @@ fn render(template: &str, item: &Value) -> String {
 
 fn resolve(spec: &FieldSpec, item: &Value) -> Option<String> {
     let v = match spec {
-        FieldSpec::Path { path, map } => lookup(item, path).map(|v| translate(v, map)),
+        FieldSpec::Path { path, map } => lookup(item, path).map(|v| translate(v, map.as_ref())),
         FieldSpec::FirstOf { first_of, map } => {
-            first_of.iter().find_map(|p| lookup(item, p)).map(|v| translate(v, map))
+            first_of.iter().find_map(|p| lookup(item, p)).map(|v| translate(v, map.as_ref()))
         }
         FieldSpec::Const { value } => Some(value.clone()),
         FieldSpec::Template { template } => Some(render(template, item)),
@@ -161,16 +161,16 @@ fn one(name: &str, f: &Fields, item: &Value) -> Result<Alert, MapError> {
     let raw_status = resolve(&f.status, item).ok_or(MapError::Missing("status"))?;
     let status = Status::parse(&raw_status).ok_or(MapError::BadStatus(raw_status))?;
     let summary = resolve(&f.summary, item).ok_or(MapError::Missing("summary"))?;
-    let opt = |s: &Option<FieldSpec>| s.as_ref().and_then(|s| resolve(s, item));
-    let identity = opt(&f.identity).unwrap_or_else(|| default_identity(name, &summary));
+    let opt = |s: Option<&FieldSpec>| s.and_then(|s| resolve(s, item));
+    let identity = opt(f.identity.as_ref()).unwrap_or_else(|| default_identity(name, &summary));
     Ok(Alert {
         source: name.to_string(),
         status,
         identity,
         summary,
-        details: opt(&f.details).unwrap_or_default(),
-        env: opt(&f.env).unwrap_or_else(|| "unknown".into()),
-        severity: opt(&f.severity).unwrap_or_else(|| "unknown".into()),
+        details: opt(f.details.as_ref()).unwrap_or_default(),
+        env: opt(f.env.as_ref()).unwrap_or_else(|| "unknown".into()),
+        severity: opt(f.severity.as_ref()).unwrap_or_else(|| "unknown".into()),
     })
 }
 

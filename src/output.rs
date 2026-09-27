@@ -12,11 +12,9 @@ pub fn message(kind: Kind, a: &Alert, probability: Option<f64>, reason: &str, fa
     let p = probability.map(|p| format!("{p:.2}")).unwrap_or_else(|| "n/a".into());
     let kind = kind.as_str();
     let mut text = format!("[{kind}] {} ({}, {}, p={p})", a.summary, a.env, a.severity);
-    if !reason.is_empty() {
-        text.push_str(&format!(" - {reason}"));
-    }
-    if !facts_line.is_empty() {
-        text.push_str(&format!(" - {facts_line}"));
+    for extra in [reason, facts_line].into_iter().filter(|e| !e.is_empty()) {
+        text.push_str(" - ");
+        text.push_str(extra);
     }
     json!({
         "text": text,

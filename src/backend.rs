@@ -100,7 +100,7 @@ impl Backend {
         Ok(Answer {
             probability: p,
             input_tokens: body["usage"]["input_tokens"].as_i64(),
-            ms: t.elapsed().as_millis() as i64,
+            ms: i64::try_from(t.elapsed().as_millis()).unwrap_or(i64::MAX),
         })
     }
 }

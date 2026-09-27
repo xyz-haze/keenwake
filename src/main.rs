@@ -1,10 +1,15 @@
 use clap::{Parser, Subcommand};
 use keenwake::config::Config;
-use keenwake::report::parse_since;
+use keenwake::mapping::extract;
+use keenwake::pipeline::prepare;
+use keenwake::redact::Redactor;
+use keenwake::report::{self, parse_since};
 use keenwake::server::{now_utc, router, App};
 use keenwake::store::Store;
+use keenwake::{digest, worker};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Parser)]
 #[command(name = "keenwake", version, about = "Decide which alerts deserve to wake a human.")]
@@ -41,7 +46,7 @@ enum Cmd {
 }
 
 /// How long the worker may keep deciding already-accepted webhooks after a stop signal.
-const DRAIN: std::time::Duration = std::time::Duration::from_secs(8);
+const DRAIN: Duration = Duration::from_secs(8);
 
 /// Resolves on SIGINT (Ctrl-C) or SIGTERM (the signal a supervisor sends to stop a service).
 async fn shutdown_signal() {
@@ -67,12 +72,12 @@ async fn main() -> anyhow::Result<()> {
     match cli.cmd {
         Cmd::CheckSource { source, payload } => {
             let spec = cfg.sources.get(&source).ok_or_else(|| anyhow::anyhow!("unknown source {source}"))?;
-            let alerts = keenwake::mapping::extract(&source, spec, &std::fs::read(payload)?)?;
-            let redactor = keenwake::redact::Redactor::new(&cfg.redact.patterns);
+            let alerts = extract(&source, spec, &std::fs::read(payload)?)?;
+            let redactor = Redactor::new(&cfg.redact.patterns);
             let store = Store::memory();
             for a in alerts {
                 println!("{a:#?}");
-                let p = keenwake::pipeline::prepare(&store, &redactor, a, now_utc(), cfg.decision.repeat_window_secs());
+                let p = prepare(&store, &redactor, a, now_utc(), cfg.decision.repeat_window_secs());
                 println!("state sent to the model:\n  {}\n", p.state);
             }
         }
@@ -83,11 +88,11 @@ async fn main() -> anyhow::Result<()> {
             let digest_app = app.clone();
             tokio::spawn(async move {
                 loop {
-                    keenwake::digest::guarded_tick(&digest_app, now_utc()).await;
-                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    digest::guarded_tick(&digest_app, now_utc()).await;
+                    tokio::time::sleep(Duration::from_secs(60)).await;
                 }
             });
-            let (queue, worker) = keenwake::worker::start(app.clone(), keenwake::worker::QUEUE_CAPACITY);
+            let (queue, worker) = worker::start(app.clone(), worker::QUEUE_CAPACITY);
             let listener = tokio::net::TcpListener::bind(&listen).await?;
             eprintln!("keenwake listening on {listen}, mode {:?}", app.cfg.decision.mode);
             // On a stop signal, serve stops accepting and returns once open requests are answered;
@@ -101,22 +106,18 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Report { since, json } => {
             let store = Store::open(&cfg.store.path)?;
-            let r = keenwake::report::build(
-                &store,
-                now_utc() - since,
-                keenwake::report::JEV_USD_PER_MTOK,
-                cfg.decision.repeat_window_secs(),
-            );
+            let r =
+                report::build(&store, now_utc() - since, report::JEV_USD_PER_MTOK, cfg.decision.repeat_window_secs());
             if json {
                 println!("{}", serde_json::to_string_pretty(&r)?);
             } else {
-                print!("{}", r.to_text());
+                print!("{r}");
             }
         }
         Cmd::Replay { since } => {
             let store = Store::open(&cfg.store.path)?;
             let app = App::new(cfg, store, now_utc)?;
-            let changed = keenwake::report::replay(&app, now_utc() - since).await;
+            let changed = report::replay(&app, now_utc() - since).await;
             if changed.is_empty() {
                 println!("no decision changes");
             }

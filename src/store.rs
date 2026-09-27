@@ -92,7 +92,7 @@ fn decision(r: &Row, o: usize) -> rusqlite::Result<DecisionRow> {
         kind: named(r, o + 3)?,
         probability: r.get(o + 4)?,
         reason: r.get(o + 5)?,
-        delivered: r.get::<_, i64>(o + 6)? != 0,
+        delivered: r.get(o + 6)?,
         backend_ms: r.get(o + 7)?,
         input_tokens: r.get(o + 8)?,
     })
@@ -161,7 +161,7 @@ impl Store {
         let c = self.c();
         c.execute("INSERT OR REPLACE INTO decisions (event_seq, decided_at, mode, kind, probability, reason, delivered, backend_ms, input_tokens)
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![d.event_seq, d.decided_at, d.mode.as_str(), d.kind.as_str(), d.probability, d.reason, d.delivered as i64, d.backend_ms, d.input_tokens])
+            params![d.event_seq, d.decided_at, d.mode.as_str(), d.kind.as_str(), d.probability, d.reason, d.delivered, d.backend_ms, d.input_tokens])
             .expect("insert decision");
         c.last_insert_rowid()
     }

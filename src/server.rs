@@ -22,7 +22,9 @@ use std::sync::Arc;
 pub const MAX_BODY: usize = 1024 * 1024;
 
 pub fn now_utc() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
 pub struct App {
