@@ -4,4 +4,5 @@ pub mod config;
 pub mod history;
 pub mod mapping;
 pub mod redact;
+pub mod state;
 pub mod store;
