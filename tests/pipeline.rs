@@ -55,6 +55,39 @@ fn repeated_firing_after_ping_is_repeat_in_gate() {
     assert!(p2.state.contains("for 1 minutes so far"));
 }
 
+/// Fixed-sequence sanity check for the replay property below: firing, firing (repeat), resolved,
+/// firing (fresh episode, pings again). Confirms the harness can actually produce `Kind::Repeat`
+/// and that replaying it from stored events and decisions reproduces the same kinds.
+#[test]
+fn replay_reproduces_repeat() {
+    let c = cfg("gate");
+    let s = Store::memory();
+    let statuses = [Status::Firing, Status::Firing, Status::Resolved, Status::Firing];
+    let p = 0.9;
+    let mut first = Vec::new();
+    for (i, status) in statuses.iter().enumerate() {
+        let pr = prepare(&s, &red(), alert(*status), 1_800_000_000 + 60 * i as i64);
+        if pr.needs_model {
+            let r = finish(&c, &pr, Ok(p));
+            s.insert_decision(&DecisionRow { event_seq: pr.event_seq, decided_at: 1_800_000_000 + 60 * i as i64,
+                mode: "gate".into(), kind: r.kind.as_str().into(), probability: Some(p), reason: String::new(),
+                delivered: r.target == Target::Ping, backend_ms: None, input_tokens: None });
+            first.push((pr.event_seq, r.kind));
+        }
+    }
+    let kinds: Vec<Kind> = first.iter().map(|(_, k)| *k).collect();
+    assert_eq!(kinds, vec![Kind::Ping, Kind::Repeat, Kind::Ping]);
+
+    for (seq, kind) in &first {
+        let ev = s.events_since(0).into_iter().find(|e| e.seq == *seq).unwrap();
+        let before = s.events_for(&ev.alert.identity, ev.received_at - alertsift::history::WINDOW_SECS, *seq);
+        let f = alertsift::history::facts(&before, &ev.alert, ev.received_at);
+        let pr = alertsift::pipeline::Prepared { event_seq: *seq, alert: ev.alert.clone(), facts: f,
+            state: String::new(), already_pinged: s.episode_pinged(&ev.alert.identity, *seq), needs_model: true };
+        assert_eq!(finish(&c, &pr, Ok(p)).kind, *kind);
+    }
+}
+
 proptest! {
     // Invariant 1: a secret placed in an unmapped field never reaches the backend request.
     #[test]
@@ -85,8 +118,15 @@ proptest! {
         let s = Store::memory();
         let mut first = Vec::new();
         for (i, (p, firing)) in ps.iter().enumerate() {
-            let pr = prepare(&s, &red(), alert(if *firing { Status::Firing } else { Status::Resolved }), 1_800_000_000 + 60 * i as i64);
-            if pr.needs_model { first.push((pr.event_seq, finish(&c, &pr, Ok(*p)).kind)); }
+            let at = 1_800_000_000 + 60 * i as i64;
+            let pr = prepare(&s, &red(), alert(if *firing { Status::Firing } else { Status::Resolved }), at);
+            if pr.needs_model {
+                let r = finish(&c, &pr, Ok(*p));
+                s.insert_decision(&DecisionRow { event_seq: pr.event_seq, decided_at: at, mode: "gate".into(),
+                    kind: r.kind.as_str().into(), probability: Some(*p), reason: String::new(),
+                    delivered: r.target == Target::Ping, backend_ms: None, input_tokens: None });
+                first.push((pr.event_seq, r.kind));
+            }
         }
         for (seq, kind) in first {
             let ev = s.events_since(0).into_iter().find(|e| e.seq == seq).unwrap();
