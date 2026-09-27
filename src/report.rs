@@ -101,12 +101,10 @@ impl RepeatSim {
         }
     }
 
-    /// A resolved event ends the episode.
     fn resolved(&mut self, identity: &str) {
         self.sent.remove(identity);
     }
 
-    /// `repeat_floor` for a decision about `identity` at `at`.
     fn floor(&self, identity: &str, at: i64) -> Option<Kind> {
         repeat_floor(self.sent.get(identity).map_or(&[], Vec::as_slice), at, self.window)
     }
@@ -195,7 +193,6 @@ fn utc_minute(ts: i64) -> String {
     format!("{year:04}-{month:02}-{day:02} {:02}:{:02} UTC", secs / 3600, secs % 3600 / 60)
 }
 
-/// The human-readable report printed by `keenwake report`.
 impl fmt::Display for Report {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "alerts decided: {}", self.total)?;

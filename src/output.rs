@@ -1,5 +1,3 @@
-//! Outgoing webhooks: generic JSON with a `text` field, 3 attempts, then undelivered.jsonl.
-
 use crate::decide::Kind;
 use crate::mapping::Alert;
 use serde_json::{json, Value};
@@ -56,9 +54,8 @@ impl Sender {
     pub fn write_undelivered(&self, url: &str, body: &Value) {
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let line = json!({"url": url, "body": body, "at": at});
-        // Build the whole line before writing: several concurrent failures append to this
-        // file from different tasks, and a single write_all() on an O_APPEND file descriptor
-        // is atomic, whereas writeln!'s piecemeal writes could interleave and corrupt lines.
+        // One write_all per line: concurrent failures append from different tasks, and a single
+        // O_APPEND write does not interleave, whereas writeln!'s piecemeal writes could.
         let mut s = line.to_string();
         s.push('\n');
         let mut open = std::fs::OpenOptions::new();

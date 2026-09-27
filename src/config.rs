@@ -1,5 +1,3 @@
-//! Loads triage.toml: backend, thresholds, outputs, and the source mappings.
-
 use crate::mapping::SourceSpec;
 use crate::redact::Pattern;
 use crate::UnknownValue;
@@ -128,9 +126,8 @@ pub struct DecisionCfg {
     pub digest: f64,
     #[serde(default = "d_digest_at")]
     pub digest_at: TimeOfDay,
-    /// A delivered ping (or untriaged ping) suppresses later ones for the same identity only if it
-    /// was decided within this many hours before the new event, so a lost `resolved` cannot
-    /// silence an identity forever.
+    /// Hours a delivered ping, untriaged or escalate keeps suppressing repeats of the same
+    /// identity, so a lost `resolved` cannot silence it forever.
     #[serde(default = "d_repeat_window_hours")]
     pub repeat_window_hours: u64,
 }

@@ -1,5 +1,3 @@
-//! Scrubs emails, IP addresses and tokens from the text fields sent to a model.
-
 use regex::Regex;
 use serde::Deserialize;
 use std::sync::LazyLock;

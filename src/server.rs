@@ -1,5 +1,3 @@
-//! HTTP entry: /hook/{source}, /metrics, /healthz.
-
 use crate::backend::{Backend, SetupError};
 use crate::config::{Config, Mode};
 use crate::decide::{resolved_target, route, Kind, Target};
@@ -85,7 +83,6 @@ pub(crate) async fn send_untriaged_raw(app: &App, source: &str, body: &[u8], tex
     app.send(Target::Ping, msg).await;
 }
 
-/// Logs, counts and (in gate) pings the redacted `raw` payload of something that could not be mapped.
 async fn unreadable(app: &App, source: &str, raw: &[u8], e: &MapError) {
     // The error can quote a payload value (a bad status): redact it like the body.
     let e: String = app.redactor.clean(&e.to_string()).chars().take(300).collect();
@@ -207,7 +204,7 @@ async fn hook(State(h): State<Http>, Path(source): Path<String>, body: Bytes) ->
     }
 }
 
-/// The HTTP routes. Webhook bodies go to `queue`, drained by `worker::run`.
+/// Webhook bodies go to `queue`, drained by `worker::run`.
 pub fn router(app: Arc<App>, queue: Queue) -> Router {
     Router::new()
         .route("/hook/{source}", post(hook))

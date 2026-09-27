@@ -29,7 +29,6 @@ fn ev_kind_at(s: &Store, identity: &str, kind: Kind, at: i64) -> i64 {
     seq
 }
 
-/// An app replaying in gate mode against the fake `backend`, with the clock at `now`.
 fn gate_replay_app(backend: &FakeHttp, store: Store, now: fn() -> i64) -> (App, tempfile::TempDir) {
     app(config(Mode::Gate, &backend.url, "http://out"), store, now)
 }
@@ -153,7 +152,8 @@ fn run(args: &[&str]) -> (bool, String, String) {
     (out.status.success(), String::from_utf8_lossy(&out.stdout).into(), String::from_utf8_lossy(&out.stderr).into())
 }
 
-/// A typo in a template key or an env path used to yield "api-health: " and "unknown" silently.
+/// Without these warnings, a typo in a template key or an env path yields "api-health: " and
+/// "unknown" silently.
 /// Warnings only: an optional field is often legitimately absent (an alert without description).
 #[test]
 fn check_source_warns_on_references_that_resolve_to_nothing() {

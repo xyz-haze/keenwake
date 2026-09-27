@@ -43,7 +43,7 @@ fn corpus() -> Vec<(Alert, Facts, bool)> {
             continue;
         }
         // Only Facts `history::facts` can produce: no median without a past episode. The corpus
-        // `ratio` field is ignored, since the sentence no longer states a resolved fraction.
+        // `ratio` field is unused: the sentence states no resolved fraction.
         let episodes = r["episodes"].as_u64().unwrap() as u32;
         let f = Facts {
             env: r["env"].as_str().unwrap().into(),

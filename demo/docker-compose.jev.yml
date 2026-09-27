@@ -1,6 +1,5 @@
-# Overlay for the hosted Jev backend: `KEENWAKE_DEMO_BACKEND=jev ./e2e.sh` adds it to the project.
-# keenwake reads keenwake.jev.toml and no longer waits for Laya, which is left out (behind a
-# profile nobody enables) so its checkpoint is neither downloaded nor loaded.
+# Overlay added by `KEENWAKE_DEMO_BACKEND=jev ./e2e.sh`. Laya goes behind a profile nobody
+# enables, so its checkpoint is neither downloaded nor loaded.
 services:
   laya:
     profiles: [laya]

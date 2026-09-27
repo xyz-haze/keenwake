@@ -136,7 +136,7 @@ impl Store {
     /// Returns the identity's events strictly after the last `resolved` event received before
     /// `since` (or from the very first event if there is none), and strictly before `before_seq`.
     /// An episode already open when the window starts is thus returned from its true first event,
-    /// even if that event lies outside `[since, before_seq)` — see `history::facts`.
+    /// even if that event lies outside `[since, before_seq)`; see `history::facts`.
     pub fn events_for(&self, identity: &str, since: i64, before_seq: i64) -> Vec<Event> {
         let c = self.c();
         let mut st = c

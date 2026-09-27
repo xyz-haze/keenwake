@@ -13,7 +13,6 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
 
-/// An app in `mode` on `store`, shared with the worker.
 fn shared_app(mode: Mode, be: &FakeHttp, out: &FakeHttp, store: Store) -> (Arc<App>, TempDir) {
     let (a, dir) = app(config(mode, &be.url, &out.url), store, || T0);
     (Arc::new(a), dir)
