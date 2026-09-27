@@ -11,6 +11,11 @@ have done and changes nothing, so you can measure it on your own alerts before t
 **Status: v0.1, a proof of concept.** Tested on a synthetic corpus and a Docker demo, not yet on a
 real on-call rotation. Run it in observe mode.
 
+![A real run: five flaps of the same CPU alert, keenwake pages only the first one](docs/img/demo.gif)
+
+<sub>A real run with the hosted Jev backend. Source: [demo/gif/keenwake.tape](demo/gif/keenwake.tape),
+re-render with `demo/gif/record.sh`.</sub>
+
 ## What it sees, what it decides
 
 An alert arrives: `CPU above 90% on etl-2`, severity `critical`, firing for 3 minutes. keenwake
@@ -149,9 +154,11 @@ backend errors: 0
 median backend latency: 273 ms
 ```
 
-`avoidable pings` is what gate mode would have held back. If the list looks right, set
-`mode = "gate"` and the three `[outputs]` webhooks (see
-[docs/reference.md](docs/reference.md#modes)), and make keenwake the only receiver.
+`avoidable pings` is what gate mode would have held back. If that list looks right, move one
+low-stakes route to gate first (staging, or one team's alerts): set `mode = "gate"` and the three
+`[outputs]` webhooks (see [docs/reference.md](docs/reference.md#modes)), send that route to
+keenwake only, and keep a direct fallback in your alerting tool for when keenwake itself is down.
+Widen it once you trust it.
 
 ## Safety
 

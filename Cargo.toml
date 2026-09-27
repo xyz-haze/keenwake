@@ -8,7 +8,7 @@ repository = "https://github.com/xyz-haze/keenwake"
 readme = "README.md"
 keywords = ["alerting", "on-call", "alertmanager", "grafana", "sre"]
 categories = ["command-line-utilities", "web-programming::http-server"]
-exclude = ["demo/", "tests/", "sidecar/", "fuzz/", "scripts/", ".dockerignore", "Dockerfile"]
+exclude = ["demo/", "tests/", "docs/img/", "sidecar/", "fuzz/", "scripts/", ".dockerignore", "Dockerfile"]
 
 [dependencies]
 axum = "0.8"

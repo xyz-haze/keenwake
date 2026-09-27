@@ -7,3 +7,4 @@ undelivered.jsonl
 /fuzz/artifacts
 /demo/out
 __pycache__/
+demo/gif/keenwake
