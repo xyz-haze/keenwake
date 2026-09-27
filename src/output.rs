@@ -46,8 +46,13 @@ impl Sender {
     pub fn write_undelivered(&self, url: &str, body: &Value) {
         let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let line = json!({"url": url, "body": body, "at": at});
+        // Build the whole line before writing: several concurrent failures append to this
+        // file from different tasks, and a single write_all() on an O_APPEND file descriptor
+        // is atomic, whereas writeln!'s piecemeal writes could interleave and corrupt lines.
+        let mut s = line.to_string();
+        s.push('\n');
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&self.undelivered) {
-            let _ = writeln!(f, "{line}");
+            let _ = f.write_all(s.as_bytes());
         }
     }
 }
