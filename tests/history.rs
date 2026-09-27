@@ -95,7 +95,7 @@ fn episode_straddling_the_window_is_not_counted() {
     let now = 1_800_000_000 + 10 * DAY;
     s.insert_event(&alert(Status::Firing), now - 10 * DAY);
     s.insert_event(&alert(Status::Firing), now - 3 * DAY);
-    s.insert_event(&alert(Status::Resolved), now - 1 * DAY);
+    s.insert_event(&alert(Status::Resolved), now - DAY);
     let seq = s.insert_event(&alert(Status::Firing), now);
     let before = s.events_for("id", now - 7 * DAY, seq);
     let f = facts(&before, &alert(Status::Firing), now);
