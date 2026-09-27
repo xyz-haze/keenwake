@@ -46,16 +46,20 @@ pub struct Report {
 #[error("expected e.g. 7d, 12h, 30m")]
 pub struct BadSince;
 
-/// A `--since` duration (`7d`, `12h`, `30m`) in seconds.
+/// A `--since` duration (`7d`, `12h`, `30m`) in seconds: ASCII digits, then one unit.
 pub fn parse_since(s: &str) -> Result<i64, BadSince> {
-    let (n, unit) = s.split_at(s.len().saturating_sub(1));
-    let n: i64 = n.parse().map_err(|_| BadSince)?;
-    Ok(n * match unit {
-        "d" => 86_400,
-        "h" => 3600,
-        "m" => 60,
+    let unit: i64 = match s.chars().last() {
+        Some('d') => 86_400,
+        Some('h') => 3600,
+        Some('m') => 60,
         _ => return Err(BadSince),
-    })
+    };
+    // The unit is one ASCII byte, so this slice is on a char boundary.
+    let n = &s[..s.len() - 1];
+    if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(BadSince);
+    }
+    n.parse::<i64>().ok().and_then(|n| n.checked_mul(unit)).ok_or(BadSince)
 }
 
 /// Repeat suppression over simulated decisions: per identity, the notifications sent in the

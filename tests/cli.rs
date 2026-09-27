@@ -42,6 +42,13 @@ fn since_parses_units() {
 }
 
 #[test]
+fn since_rejects_non_ascii_negative_and_overflowing_input() {
+    for bad in ["7é", "é", "é7d", "", "d", "-7d", "+7d", " 7d", "7 d", "99999999999999999d"] {
+        assert!(parse_since(bad).is_err(), "{bad:?} must be rejected");
+    }
+}
+
+#[test]
 fn report_counts_and_costs() {
     let s = Store::memory();
     ev(&s, "a", Kind::Ping, Some(0.9), 500_000);
