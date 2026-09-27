@@ -198,3 +198,64 @@ async fn replay_of_recorded_gate_history_changes_nothing() {
     assert_eq!(stored, vec!["ping", "repeat", "resolved", "ping", "escalate", "digest"]);
     assert_eq!(replay(&a, 0).await, vec![]);
 }
+
+/// Invariant 6 when a ping failed delivery: `serve` did not count it as sent, so the next firing
+/// pinged again; `replay` must follow the recorded `delivered` flag, not the kind alone.
+#[tokio::test]
+async fn replay_follows_a_failed_delivery() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(Arc::new(|b| {
+        let lost = b["keenwake"]["summary"].as_str().unwrap_or("").contains("lost");
+        (if lost { 500 } else { 200 }, String::new(), 0)
+    }))
+    .await;
+    let mut cfg = config(Mode::Gate, &be.url, &out.url);
+    cfg.backend.timeout_ms = 300;
+    let (mut a, _d) = app(cfg, Store::memory(), || T0);
+    a.sender = keenwake::output::Sender::new(a.cfg.store.undelivered.clone(), 1).unwrap();
+    handle_body(&a, "grafana", &grafana("p=0.90 disk lost", "f1", "firing")).await;
+    handle_body(&a, "grafana", &grafana("p=0.90 disk seen", "f1", "firing")).await;
+    let stored: Vec<(&str, bool)> =
+        a.store.decisions_since(0).into_iter().map(|(_, d)| (d.kind.as_str(), d.delivered)).collect();
+    assert_eq!(stored, vec![("ping", false), ("ping", true)]);
+    assert_eq!(replay(&a, 0).await, vec![]);
+}
+
+/// With on_error = "drop", an untriaged decision is sent nowhere, so it never makes a later
+/// untriaged a repeat, in `serve` or in `replay`.
+#[tokio::test]
+async fn replay_of_dropped_untriaged_changes_nothing() {
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let mut cfg = config(Mode::Gate, &be.url, &out.url);
+    cfg.backend.timeout_ms = 300;
+    cfg.decision.on_error = keenwake::config::OnError::Drop;
+    let (a, _d) = app(cfg, Store::memory(), || T0);
+    handle_body(&a, "grafana", &grafana("fail500", "f1", "firing")).await;
+    handle_body(&a, "grafana", &grafana("fail500", "f1", "firing")).await;
+    assert!(out.bodies().is_empty());
+    assert_eq!(replay(&a, 0).await, vec![]);
+}
+
+static NOW_SINCE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(T0);
+fn clock_since() -> i64 {
+    NOW_SINCE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// A `--since` shorter than the repeat window: the ping that made the next firing a repeat lies
+/// before the replayed range, and replay must still know about it.
+#[tokio::test]
+async fn replay_since_inside_the_repeat_window_knows_the_earlier_ping() {
+    use std::sync::atomic::Ordering;
+    let be = FakeHttp::start(system_one_from_state()).await;
+    let out = FakeHttp::start(sink()).await;
+    let mut cfg = config(Mode::Gate, &be.url, &out.url);
+    cfg.backend.timeout_ms = 300;
+    let (a, _d) = app(cfg, Store::memory(), clock_since);
+    handle_body(&a, "grafana", &grafana("p=0.90 disk", "f1", "firing")).await;
+    NOW_SINCE.store(T0 + 3600, Ordering::SeqCst);
+    handle_body(&a, "grafana", &grafana("p=0.90 disk", "f1", "firing")).await;
+    let stored: Vec<&str> = a.store.decisions_since(0).into_iter().map(|(_, d)| d.kind.as_str()).collect();
+    assert_eq!(stored, vec!["ping", "repeat"]);
+    assert_eq!(replay(&a, T0 + 1800).await, vec![]);
+}

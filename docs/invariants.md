@@ -40,8 +40,13 @@ Rules the code must never break. Each one has a test; the test name is given.
 
 6. **Replay.** Same config and same deterministic backend give the same decisions as the ones
    already stored. The shipped `replay` (the `keenwake replay` command), run on a gate history
-   recorded by `serve`, reports no change.
+   recorded by `serve`, reports no change — including when a notification failed delivery, when
+   `on_error = "drop"` sent an untriaged decision nowhere, and when `--since` is shorter than the
+   repeat window.
    `tests/server.rs::replay_of_recorded_gate_history_changes_nothing`,
+   `tests/server.rs::replay_follows_a_failed_delivery`,
+   `tests/server.rs::replay_of_dropped_untriaged_changes_nothing`,
+   `tests/server.rs::replay_since_inside_the_repeat_window_knows_the_earlier_ping`,
    `tests/pipeline.rs::replay_is_deterministic` (property over the shared pipeline)
 
 ## A known gap these invariants don't cover

@@ -1,12 +1,13 @@
 //! Observe-mode report and replay diff.
 
+use crate::config::Mode;
 use crate::decide::{repeat_floor, route, Kind, Sent, Target};
 use crate::history::{facts, Facts, WINDOW_SECS};
 use crate::server::App;
 use crate::state::sentence;
-use crate::store::{Event, Store};
+use crate::store::{DecisionRow, Event, Store};
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 pub const JEV_USD_PER_MTOK: f64 = 0.042;
@@ -63,11 +64,22 @@ pub fn parse_since(s: &str) -> Result<i64, BadSince> {
 struct RepeatSim {
     window: i64,
     sent: HashMap<String, Vec<Sent>>,
+    seeded: HashSet<String>,
 }
 
 impl RepeatSim {
     fn new(window: i64) -> RepeatSim {
-        RepeatSim { window, sent: HashMap::new() }
+        RepeatSim { window, sent: HashMap::new(), seeded: HashSet::new() }
+    }
+
+    /// On an identity's first event in the replayed range, loads what its open episode had
+    /// already sent before that range, so a `--since` shorter than the window still sees it.
+    fn seed(&mut self, store: &Store, e: &Event) {
+        let id = &e.alert.identity;
+        if self.seeded.insert(id.clone()) {
+            let before = store.episode_sent(id, e.seq, e.received_at.saturating_sub(self.window));
+            self.sent.insert(id.clone(), before);
+        }
     }
 
     /// A resolved event ends the episode.
@@ -162,17 +174,27 @@ impl fmt::Display for Report {
     }
 }
 
+/// Whether a replayed decision counts as sent for repeat suppression. The same decision `serve`
+/// made in gate is taken as it really went (a failed delivery was not sent); anything else, such
+/// as observe-mode history replayed with a gate config, is assumed delivered if it has a target.
+fn replay_sent(old: &DecisionRow, new_kind: Kind, target: Target) -> bool {
+    if old.mode == Mode::Gate && old.kind == new_kind {
+        return old.delivered;
+    }
+    matches!(target, Target::Ping | Target::Escalate | Target::DigestQueue)
+}
+
 /// Re-decides stored events with the current config and backend. This replays **decisions**,
 /// not mapping: a change to a source's field extraction does not apply to already-stored events.
 /// Repeat suppression (a notification no more urgent than one already sent in the episode) is
-/// simulated purely from the kinds this replay itself produces, per identity, in seq order, using
-/// event times — never from `Store::episode_sent`, whose `delivered` flag observe-mode history
-/// (the usual source for a replay) never sets.
+/// simulated per identity, in seq order, using event times, from what was sent before `since`
+/// (`Store::episode_sent`) and then from the replayed decisions (`replay_sent`).
 pub async fn replay(app: &App, since: i64) -> Vec<Change> {
     let mut changed = Vec::new();
     let mut sim = RepeatSim::new(app.cfg.decision.repeat_window_secs());
     for (e, old) in app.store.decisions_since(since) {
         let id = &e.alert.identity;
+        sim.seed(&app.store, &e);
         if old.kind == Kind::Resolved {
             sim.resolved(id);
             continue;
@@ -180,7 +202,7 @@ pub async fn replay(app: &App, since: i64) -> Vec<Change> {
         let state = sentence(&e.alert, &stored_facts(&app.store, &e));
         let p = app.backend.ask(&state, &app.cfg.question).await.ok().map(|a| a.probability);
         let r = route(&app.cfg.decision, p, sim.floor(id, e.received_at));
-        if matches!(r.target, Target::Ping | Target::Escalate | Target::DigestQueue) {
+        if replay_sent(&old, r.kind, r.target) {
             sim.notified(id, e.received_at, r.kind);
         }
         let new = r.kind;
