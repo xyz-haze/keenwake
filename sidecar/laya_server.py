@@ -10,6 +10,28 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MAX_BODY_BYTES = 1_048_576  # 1 MiB
 
+MODEL_REPO = "convaiinnovations/laya"
+# A commit of MODEL_REPO, so a push to its main branch never changes the weights keenwake runs.
+# Change it only after re-measuring the corpus (tests/corpus.rs) against the new checkpoint.
+MODEL_REVISION = "55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851"
+# The files one checkpoint needs, as laya itself downloads them.
+CHECKPOINT_FILES = ("rl_agent_config.json", "model.safetensors", "tokenizer/*", "encoder/*")
+
+
+def load_agent(laya, snapshot_download, sub):
+    """Loads checkpoint `sub` of MODEL_REPO at MODEL_REVISION.
+
+    laya.load() takes no revision, so the pinned snapshot is downloaded here and loaded from disk.
+    """
+    prefix = f"{sub}/" if sub else ""
+    path = snapshot_download(
+        MODEL_REPO,
+        revision=MODEL_REVISION,
+        allow_patterns=[prefix + name for name in CHECKPOINT_FILES],
+        token=os.environ.get("HF_TOKEN") or None,
+    )
+    return laya.load(path, **({"subfolder": sub} if sub else {}))
+
 
 def make_handler(agent):
     lock = threading.Lock()
@@ -81,11 +103,12 @@ def main():
     os.environ.setdefault("USE_TF", "0")
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
     import laya
+    from huggingface_hub import snapshot_download
     sub = os.environ.get("LAYA_SUBFOLDER", "typed-decisions")
-    agent = laya.load("convaiinnovations/laya", **({"subfolder": sub} if sub else {}))
+    agent = load_agent(laya, snapshot_download, sub)
     agent.predict("warm up", {"q": {"type": "noul", "instructions": "Is this a warm-up?"}})
     host, port = os.environ.get("LAYA_HOST", "127.0.0.1"), int(os.environ.get("LAYA_PORT", "8771"))
-    print(f"laya sidecar ({sub}) on {host}:{port}", flush=True)
+    print(f"laya sidecar ({sub} at {MODEL_REVISION[:12]}) on {host}:{port}", flush=True)
     ThreadingHTTPServer((host, port), make_handler(agent)).serve_forever()
 
 

@@ -8,7 +8,7 @@ import urllib.request
 from contextlib import contextmanager
 from http.server import ThreadingHTTPServer
 
-from laya_server import make_handler
+from laya_server import MODEL_REPO, MODEL_REVISION, load_agent, make_handler
 
 
 class FakeAgent:
@@ -129,6 +129,42 @@ class SidecarTest(unittest.TestCase):
                     status, body = e.code, json.loads(e.read())
         self.assertEqual(status, 500)
         self.assertEqual(body["error"], "prediction failed")
+
+
+class LoadAgentTest(unittest.TestCase):
+    """The model is loaded from a pinned commit, never from whatever the repo's main is now."""
+
+    def load(self, sub):
+        calls = {}
+
+        def snapshot_download(repo, **kw):
+            calls["download"] = (repo, kw)
+            return "/models/snap"
+
+        class FakeLaya:
+            @staticmethod
+            def load(path, **kw):
+                calls["load"] = (path, kw)
+                return "agent"
+
+        self.assertEqual(load_agent(FakeLaya, snapshot_download, sub), "agent")
+        return calls
+
+    def test_revision_is_a_full_commit_sha(self):
+        self.assertRegex(MODEL_REVISION, r"^[0-9a-f]{40}$")
+
+    def test_downloads_the_pinned_revision_and_loads_it_from_disk(self):
+        calls = self.load("typed-decisions")
+        repo, kw = calls["download"]
+        self.assertEqual((repo, kw["revision"]), (MODEL_REPO, MODEL_REVISION))
+        self.assertIn("typed-decisions/model.safetensors", kw["allow_patterns"])
+        self.assertTrue(all(p.startswith("typed-decisions/") for p in kw["allow_patterns"]))
+        self.assertEqual(calls["load"], ("/models/snap", {"subfolder": "typed-decisions"}))
+
+    def test_root_checkpoint_has_no_subfolder(self):
+        calls = self.load("")
+        self.assertIn("model.safetensors", calls["download"][1]["allow_patterns"])
+        self.assertEqual(calls["load"], ("/models/snap", {}))
 
 
 if __name__ == "__main__":
