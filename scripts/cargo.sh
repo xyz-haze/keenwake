@@ -3,7 +3,7 @@
 # -u keeps target/ and Cargo.lock owned by the user, not root.
 # CARGO_HOME lives in the mounted dir because a named volume is born root.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 # Forward KEENWAKE_* and TYPESAFE_API_KEY by name only: values never appear in the command line.
 envs=()
 while IFS='=' read -r k _; do envs+=(-e "$k"); done < <(env | grep -E '^(KEENWAKE_[A-Z_]+|TYPESAFE_API_KEY)=' || true)

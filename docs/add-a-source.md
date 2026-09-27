@@ -64,5 +64,5 @@ TOML:
 3. Register the preset in the `PRESETS` list in `src/config.rs`.
 4. Add a test to `tests/config.rs` asserting `status`, `identity`, `summary` and `env` on the
    fixture.
-5. Run `./cargo.sh test --test config` and see the new test fail before the preset exists, then
+5. Run `scripts/cargo.sh test --test config` and see the new test fail before the preset exists, then
    pass once it does.
