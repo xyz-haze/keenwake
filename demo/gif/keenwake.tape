@@ -15,17 +15,17 @@ Type "sleep 1; clear" Enter
 Sleep 2s
 Show
 
-Type "# The CPU alert flaps: fires, clears a second later. Four times." Enter
+Type "# api-1 fails its health check for a second, then recovers. Four times." Enter
 Sleep 300ms
-Type "./flap.sh 1 93; ./flap.sh 2 97; ./flap.sh 3 91; ./flap.sh 4 95" Enter
+Type "./flap.sh 1; ./flap.sh 2; ./flap.sh 3; ./flap.sh 4" Enter
 Sleep 10s
-Type "# Digests arrive in tomorrow's summary. Now it fires and stays up." Enter
+Type "# Blips go to tomorrow's digest. Now api-1 goes down and stays down." Enter
 Sleep 300ms
-Type "./fire.sh 'still up, 0 min' 96" Enter
+Type "./fire.sh 'down, 0 min'" Enter
 Sleep 3s
 Type "sleep 240   # 4 real minutes, cut from the recording" Enter
 Hide
 Sleep 242s
 Show
-Type "./fire.sh 'still up, 4 min' 96" Enter
+Type "./fire.sh 'still down, 4 min'" Enter
 Sleep 5s
