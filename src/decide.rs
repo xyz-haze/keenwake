@@ -28,6 +28,7 @@ impl Kind {
             Kind::Resolved => "resolved",
         }
     }
+    /// Ranks what `classify` returns, least urgent first.
     pub fn urgency(self) -> u8 {
         match self {
             Kind::Digest => 0,
@@ -78,10 +79,11 @@ pub fn classify(p: f64, ping: f64, digest: f64) -> Kind {
     }
 }
 
-pub fn route(d: &DecisionCfg, outcome: Result<f64, String>, already_pinged: bool) -> Routing {
-    let kind = match outcome {
-        Ok(p) => classify(p, d.ping, d.digest),
-        Err(_) => Kind::Untriaged,
+/// `probability` is `None` when the backend gave no usable answer.
+pub fn route(d: &DecisionCfg, probability: Option<f64>, already_pinged: bool) -> Routing {
+    let kind = match probability {
+        Some(p) => classify(p, d.ping, d.digest),
+        None => Kind::Untriaged,
     };
     if d.mode == Mode::Observe {
         return Routing { kind, target: Target::Verdict };

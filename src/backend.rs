@@ -61,10 +61,6 @@ impl Backend {
         })
     }
 
-    pub fn model(&self) -> &str {
-        &self.model
-    }
-
     pub async fn ask(&self, state: &str, q: &Question) -> Result<Answer, BackendError> {
         let t = Instant::now();
         let mut req = self.client.post(&self.endpoint).json(&request_body(&self.model, state, q));

@@ -4,7 +4,7 @@ use crate::config::Mode;
 use crate::decide::Kind;
 use crate::mapping::{Alert, Status};
 use rusqlite::types::Type;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, Connection, OptionalExtension, Params, Row, Statement};
 use std::str::FromStr;
 use std::sync::{Mutex, PoisonError};
 
@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS digest_queue (event_seq INTEGER PRIMARY KEY REFERENCE
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 ";
 
-const EVENT_COLS: &str = "seq, received_at, source, identity, status, summary, details, env, severity";
+/// Read by `event`, in this order; every query aliases `events` as `e`.
+const EVENT_COLS: &str =
+    "e.seq, e.received_at, e.source, e.identity, e.status, e.summary, e.details, e.env, e.severity";
 
 fn event(r: &Row) -> rusqlite::Result<Event> {
     let status: String = r.get(4)?;
@@ -75,6 +77,11 @@ where
 {
     let s: String = r.get(i)?;
     s.parse().map_err(|e| rusqlite::Error::FromSqlConversionFailure(i, Type::Text, Box::new(e)))
+}
+
+/// Runs a query that selects `EVENT_COLS`.
+fn events(st: &mut Statement, p: impl Params) -> Vec<Event> {
+    st.query_map(p, event).expect("query").map(|r| r.expect("row")).collect()
 }
 
 fn decision(r: &Row, o: usize) -> rusqlite::Result<DecisionRow> {
@@ -133,21 +140,21 @@ impl Store {
         let c = self.c();
         let mut st = c
             .prepare(&format!(
-                "SELECT {EVENT_COLS} FROM events
-            WHERE identity = ?1 AND seq < ?2 AND seq > COALESCE(
+                "SELECT {EVENT_COLS} FROM events e
+            WHERE e.identity = ?1 AND e.seq < ?2 AND e.seq > COALESCE(
               (SELECT MAX(seq) FROM events WHERE identity = ?1 AND status = 'resolved' AND received_at < ?3), 0)
-            ORDER BY seq"
+            ORDER BY e.seq"
             ))
             .expect("prepare");
-        st.query_map(params![identity, before_seq, since], event).expect("query").map(|r| r.expect("row")).collect()
+        events(&mut st, params![identity, before_seq, since])
     }
 
     pub fn events_since(&self, since: i64) -> Vec<Event> {
         let c = self.c();
         let mut st = c
-            .prepare(&format!("SELECT {EVENT_COLS} FROM events WHERE received_at >= ?1 ORDER BY seq"))
+            .prepare(&format!("SELECT {EVENT_COLS} FROM events e WHERE e.received_at >= ?1 ORDER BY e.seq"))
             .expect("prepare");
-        st.query_map(params![since], event).expect("query").map(|r| r.expect("row")).collect()
+        events(&mut st, params![since])
     }
 
     pub fn insert_decision(&self, d: &DecisionRow) -> i64 {
@@ -159,23 +166,11 @@ impl Store {
         c.last_insert_rowid()
     }
 
-    pub fn decision_for(&self, event_seq: i64) -> Option<DecisionRow> {
-        let c = self.c();
-        c.query_row(
-            &format!("SELECT {DECISION_COLS} FROM decisions d WHERE d.event_seq = ?1"),
-            params![event_seq],
-            |r| decision(r, 0),
-        )
-        .optional()
-        .expect("query")
-    }
-
     pub fn decisions_since(&self, since: i64) -> Vec<(Event, DecisionRow)> {
         let c = self.c();
-        let cols: String = EVENT_COLS.split(", ").map(|x| format!("e.{x}")).collect::<Vec<_>>().join(", ");
         let mut st = c
             .prepare(&format!(
-                "SELECT {cols}, {DECISION_COLS} FROM decisions d JOIN events e ON e.seq = d.event_seq
+                "SELECT {EVENT_COLS}, {DECISION_COLS} FROM decisions d JOIN events e ON e.seq = d.event_seq
             WHERE e.received_at >= ?1 ORDER BY e.seq"
             ))
             .expect("prepare");
@@ -190,18 +185,15 @@ impl Store {
     /// The time bound keeps a lost `resolved` from silencing the identity forever.
     pub fn episode_pinged(&self, identity: &str, before_seq: i64, since: i64) -> bool {
         let c = self.c();
-        let start: Option<i64> = c
-            .query_row(
-                "SELECT COALESCE(MAX(seq), 0) FROM events WHERE identity = ?1 AND seq < ?2 AND status = 'resolved'",
-                params![identity, before_seq],
-                |r| r.get(0),
-            )
-            .optional()
-            .expect("query");
-        c.query_row("SELECT EXISTS(SELECT 1 FROM decisions d JOIN events e ON e.seq = d.event_seq
-                     WHERE e.identity = ?1 AND e.seq > ?2 AND e.seq < ?3 AND d.kind IN ('ping', 'untriaged') AND d.delivered = 1
-                     AND d.decided_at >= ?4)",
-            params![identity, start.unwrap_or(0), before_seq, since], |r| r.get::<_, i64>(0)).expect("query") == 1
+        c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM decisions d JOIN events e ON e.seq = d.event_seq
+             WHERE e.identity = ?1 AND e.seq < ?2 AND e.seq > COALESCE(
+               (SELECT MAX(seq) FROM events WHERE identity = ?1 AND seq < ?2 AND status = 'resolved'), 0)
+             AND d.kind IN ('ping', 'untriaged') AND d.delivered = 1 AND d.decided_at >= ?3)",
+            params![identity, before_seq, since],
+            |r| r.get(0),
+        )
+        .expect("query")
     }
 
     pub fn queue_digest(&self, event_seq: i64) {
@@ -213,16 +205,14 @@ impl Store {
     pub fn take_digest(&self) -> Vec<Event> {
         let mut c = self.c();
         let tx = c.transaction().expect("tx");
-        let evs: Vec<Event> = {
-            let cols: String = EVENT_COLS.split(", ").map(|x| format!("e.{x}")).collect::<Vec<_>>().join(", ");
-            let mut st = tx
+        let evs = events(
+            &mut tx
                 .prepare(&format!(
-                    "SELECT {cols} FROM digest_queue q JOIN events e ON e.seq = q.event_seq ORDER BY e.seq"
+                    "SELECT {EVENT_COLS} FROM digest_queue q JOIN events e ON e.seq = q.event_seq ORDER BY e.seq"
                 ))
-                .expect("prepare");
-            let v = st.query_map([], event).expect("query").map(|r| r.expect("row")).collect();
-            v
-        };
+                .expect("prepare"),
+            [],
+        );
         tx.execute("DELETE FROM digest_queue", []).expect("clear");
         tx.commit().expect("commit");
         evs

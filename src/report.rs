@@ -175,9 +175,8 @@ pub async fn replay(app: &App, since: i64) -> Vec<Change> {
             continue;
         }
         let state = sentence(&e.alert, &stored_facts(&app.store, &e));
-        let outcome =
-            app.backend.ask(&state, &app.cfg.question).await.map(|a| a.probability).map_err(|e| e.to_string());
-        let new = route(&app.cfg.decision, outcome, sim.suppresses(id, e.received_at)).kind;
+        let p = app.backend.ask(&state, &app.cfg.question).await.ok().map(|a| a.probability);
+        let new = route(&app.cfg.decision, p, sim.suppresses(id, e.received_at)).kind;
         if matches!(new, Kind::Ping | Kind::Untriaged) {
             sim.notified(id, e.received_at);
         }

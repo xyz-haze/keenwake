@@ -24,36 +24,38 @@ fn classify_uses_both_thresholds() {
 #[test]
 fn gate_routes_each_kind() {
     let c = cfg(Mode::Gate, OnError::Ping);
-    assert_eq!(route(&c, Ok(0.9), false).target, Target::Ping);
-    assert_eq!(route(&c, Ok(0.4), false).target, Target::Escalate);
-    assert_eq!(route(&c, Ok(0.1), false).target, Target::DigestQueue);
-    let e = route(&c, Err("timeout".into()), false);
+    assert_eq!(route(&c, Some(0.9), false).target, Target::Ping);
+    assert_eq!(route(&c, Some(0.4), false).target, Target::Escalate);
+    assert_eq!(route(&c, Some(0.1), false).target, Target::DigestQueue);
+    let e = route(&c, None, false);
     assert_eq!((e.kind, e.target), (Kind::Untriaged, Target::Ping));
-    let e = route(&cfg(Mode::Gate, OnError::Drop), Err("timeout".into()), false);
+    let e = route(&cfg(Mode::Gate, OnError::Drop), None, false);
     assert_eq!((e.kind, e.target), (Kind::Untriaged, Target::Nothing));
 }
 
 #[test]
 fn gate_does_not_ping_twice_in_one_episode() {
     let c = cfg(Mode::Gate, OnError::Ping);
-    let r = route(&c, Ok(0.9), true);
+    let r = route(&c, Some(0.9), true);
     assert_eq!((r.kind, r.target), (Kind::Repeat, Target::Nothing));
-    let r = route(&c, Err("x".into()), true);
+    let r = route(&c, None, true);
     assert_eq!((r.kind, r.target), (Kind::Repeat, Target::Nothing));
-    assert_eq!(route(&c, Ok(0.4), true).target, Target::Escalate, "escalation still flows");
+    assert_eq!(route(&c, Some(0.4), true).target, Target::Escalate, "escalation still flows");
 }
 
 proptest! {
     #[test]
     fn observe_never_suppresses_or_sends_to_team_outputs(p in 0.0f64..=1.0, err in any::<bool>(), pinged in any::<bool>(), drop in any::<bool>()) {
         let c = cfg(Mode::Observe, if drop { OnError::Drop } else { OnError::Ping });
-        let outcome = if err { Err("e".to_string()) } else { Ok(p) };
+        let outcome = if err { None } else { Some(p) };
         prop_assert_eq!(route(&c, outcome, pinged).target, Target::Verdict);
     }
 
     #[test]
-    fn gate_fail_open_always_pings(msg in ".{0,20}") {
-        let r = route(&cfg(Mode::Gate, OnError::Ping), Err(msg), false);
+    fn gate_fail_open_always_pings(digest in 0.0f64..=1.0, ping in 0.0f64..=1.0) {
+        let mut c = cfg(Mode::Gate, OnError::Ping);
+        (c.digest, c.ping) = if digest <= ping { (digest, ping) } else { (ping, digest) };
+        let r = route(&c, None, false);
         prop_assert_eq!(r.target, Target::Ping);
     }
 

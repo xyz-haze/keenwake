@@ -58,7 +58,7 @@ fn repeated_firing_after_ping_is_repeat_in_gate() {
     let s = Store::memory();
     let c = cfg("gate");
     let p1 = prepare(&s, &red(), alert(Status::Firing), 1_800_000_000, WINDOW);
-    let r1 = route(&c.decision, Ok(0.9), p1.already_pinged);
+    let r1 = route(&c.decision, Some(0.9), p1.already_pinged);
     assert_eq!(r1.target, Target::Ping);
     s.insert_decision(&DecisionRow {
         event_seq: p1.event_seq,
@@ -73,7 +73,7 @@ fn repeated_firing_after_ping_is_repeat_in_gate() {
     });
     let p2 = prepare(&s, &red(), alert(Status::Firing), 1_800_000_060, WINDOW);
     assert!(p2.already_pinged);
-    assert_eq!(route(&c.decision, Ok(0.9), p2.already_pinged).kind, Kind::Repeat);
+    assert_eq!(route(&c.decision, Some(0.9), p2.already_pinged).kind, Kind::Repeat);
     assert!(p2.state.contains("for 1 minutes so far"));
 }
 
@@ -90,7 +90,7 @@ fn replay_reproduces_repeat() {
     for (i, status) in statuses.iter().enumerate() {
         let pr = prepare(&s, &red(), alert(*status), 1_800_000_000 + 60 * i as i64, WINDOW);
         if pr.needs_model {
-            let r = route(&c.decision, Ok(p), pr.already_pinged);
+            let r = route(&c.decision, Some(p), pr.already_pinged);
             s.insert_decision(&DecisionRow {
                 event_seq: pr.event_seq,
                 decided_at: 1_800_000_000 + 60 * i as i64,
@@ -111,7 +111,7 @@ fn replay_reproduces_repeat() {
     for (seq, kind) in &first {
         let ev = s.events_since(0).into_iter().find(|e| e.seq == *seq).unwrap();
         let already_pinged = s.episode_pinged(&ev.alert.identity, *seq, ev.received_at - WINDOW);
-        assert_eq!(route(&c.decision, Ok(p), already_pinged).kind, *kind);
+        assert_eq!(route(&c.decision, Some(p), already_pinged).kind, *kind);
     }
 }
 
@@ -148,7 +148,7 @@ proptest! {
             let at = 1_800_000_000 + 60 * i as i64;
             let pr = prepare(&s, &red(), alert(if *firing { Status::Firing } else { Status::Resolved }), at, WINDOW);
             if pr.needs_model {
-                let r = route(&c.decision, Ok(*p), pr.already_pinged);
+                let r = route(&c.decision, Some(*p), pr.already_pinged);
                 s.insert_decision(&DecisionRow { event_seq: pr.event_seq, decided_at: at, mode: Mode::Gate,
                     kind: r.kind, probability: Some(*p), reason: String::new(),
                     delivered: r.target == Target::Ping, backend_ms: None, input_tokens: None });
@@ -159,7 +159,7 @@ proptest! {
             let ev = s.events_since(0).into_iter().find(|e| e.seq == seq).unwrap();
             let already_pinged = s.episode_pinged(&ev.alert.identity, seq, ev.received_at - WINDOW);
             let p = ps[(seq - 1) as usize].0;
-            prop_assert_eq!(route(&c.decision, Ok(p), already_pinged).kind, kind);
+            prop_assert_eq!(route(&c.decision, Some(p), already_pinged).kind, kind);
         }
     }
 }

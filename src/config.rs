@@ -259,8 +259,6 @@ pub enum ConfigError {
     #[error("cannot read config: {0}")]
     Io(#[from] std::io::Error),
     #[error("invalid config: {0}")]
-    Parse(String),
-    #[error("invalid config: {0}")]
     Invalid(String),
 }
 
@@ -317,7 +315,7 @@ impl Config {
     }
 
     pub fn from_toml(text: &str) -> Result<Config, ConfigError> {
-        let raw: RawConfig = toml::from_str(text).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        let raw: RawConfig = toml::from_str(text).map_err(|e| invalid(e.to_string()))?;
         let mut sources = BTreeMap::new();
         for (name, _) in PRESETS {
             let mut t = toml::Table::new();
@@ -355,14 +353,13 @@ impl Config {
         if d.repeat_window_hours == 0 {
             return Err(invalid("decision.repeat_window_hours must be greater than 0"));
         }
-        if d.mode == Mode::Gate && self.outputs.ping.is_none() {
-            return Err(invalid("mode = \"gate\" requires outputs.ping"));
-        }
-        if d.mode == Mode::Gate && self.outputs.escalate.is_none() {
-            return Err(invalid("mode = \"gate\" requires outputs.escalate"));
-        }
-        if d.mode == Mode::Gate && self.outputs.digest.is_none() {
-            return Err(invalid("mode = \"gate\" requires outputs.digest"));
+        if d.mode == Mode::Gate {
+            let o = &self.outputs;
+            for (name, url) in [("ping", &o.ping), ("escalate", &o.escalate), ("digest", &o.digest)] {
+                if url.is_none() {
+                    return Err(invalid(format!("mode = \"gate\" requires outputs.{name}")));
+                }
+            }
         }
         Ok(())
     }

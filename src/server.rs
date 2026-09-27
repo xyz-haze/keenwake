@@ -121,18 +121,17 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
             });
             continue;
         }
-        let (outcome, ms, tokens, reason) = match app.backend.ask(&p.state, &app.cfg.question).await {
+        let (prob, ms, tokens, reason) = match app.backend.ask(&p.state, &app.cfg.question).await {
             Ok(a) => {
                 app.metrics.observe_ms("keenwake_backend", a.ms);
-                (Ok(a.probability), Some(a.ms), a.input_tokens, String::new())
+                (Some(a.probability), Some(a.ms), a.input_tokens, String::new())
             }
             Err(e) => {
                 app.metrics.inc("keenwake_backend_errors_total", &[]);
-                (Err(e.to_string()), None, None, format!("not triaged: backend unavailable ({e})"))
+                (None, None, None, format!("not triaged: backend unavailable ({e})"))
             }
         };
-        let prob = outcome.as_ref().ok().copied();
-        let r = route(&app.cfg.decision, outcome, p.already_pinged);
+        let r = route(&app.cfg.decision, prob, p.already_pinged);
         app.metrics.inc("keenwake_decisions_total", &[("kind", r.kind.as_str())]);
         let delivered = match r.target {
             Target::DigestQueue => {
@@ -140,9 +139,12 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
                 false
             }
             Target::Nothing => false,
-            t => app.send(t, message(r.kind, &p.alert, prob, &reason, &facts_line(&p.facts))).await,
+            // A verdict is a report on the decision, not a notification to the team.
+            t => {
+                app.send(t, message(r.kind, &p.alert, prob, &reason, &facts_line(&p.facts))).await
+                    && t != Target::Verdict
+            }
         };
-        let delivered = delivered && r.kind != Kind::Repeat;
         app.store.insert_decision(&DecisionRow {
             event_seq: p.event_seq,
             decided_at: now,
@@ -150,7 +152,7 @@ pub async fn handle_body(app: &App, source: &str, body: &[u8]) -> u16 {
             kind: r.kind,
             probability: prob,
             reason,
-            delivered: delivered && r.target != Target::Verdict,
+            delivered,
             backend_ms: ms,
             input_tokens: tokens,
         });
